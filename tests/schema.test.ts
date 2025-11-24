@@ -297,5 +297,55 @@ describe('buildQuerySchema', () => {
 
     expect(Object.keys(rangeProperties)).toHaveLength(0);
   });
+
+  it('should exclude facet fields not listed in capabilities.facets', () => {
+    const manifest: LyraManifest = {
+      version: '1.0.0',
+      datasetId: 'test',
+      builtAt: '2025-01-01T00:00:00Z',
+      fields: [
+        { name: 'id', kind: 'id', type: 'string', ops: ['eq'] },
+        { name: 'status', kind: 'facet', type: 'string', ops: ['eq'] },
+        { name: 'excludedFacet', kind: 'facet', type: 'string', ops: ['eq'] },
+      ],
+      capabilities: {
+        facets: ['status'], // excludedFacet is not in capabilities
+        ranges: [],
+      },
+    };
+
+    const schema = buildQuerySchema(manifest);
+    const properties = schema.properties as Record<string, unknown>;
+    const facets = properties.facets as Record<string, unknown>;
+    const facetProperties = facets.properties as Record<string, unknown>;
+
+    expect(facetProperties.status).toBeDefined();
+    expect(facetProperties.excludedFacet).toBeUndefined();
+  });
+
+  it('should exclude range fields not listed in capabilities.ranges', () => {
+    const manifest: LyraManifest = {
+      version: '1.0.0',
+      datasetId: 'test',
+      builtAt: '2025-01-01T00:00:00Z',
+      fields: [
+        { name: 'id', kind: 'id', type: 'string', ops: ['eq'] },
+        { name: 'createdAt', kind: 'range', type: 'date', ops: ['between'] },
+        { name: 'excludedRange', kind: 'range', type: 'number', ops: ['between'] },
+      ],
+      capabilities: {
+        facets: [],
+        ranges: ['createdAt'], // excludedRange is not in capabilities
+      },
+    };
+
+    const schema = buildQuerySchema(manifest);
+    const properties = schema.properties as Record<string, unknown>;
+    const ranges = properties.ranges as Record<string, unknown>;
+    const rangeProperties = ranges.properties as Record<string, unknown>;
+
+    expect(rangeProperties.createdAt).toBeDefined();
+    expect(rangeProperties.excludedRange).toBeUndefined();
+  });
 });
 

@@ -598,6 +598,8 @@ const bundle = await createBundle(wideTable, {
 
 Builds a JSON schema that describes the structure of a `LyraQuery` for a given manifest. The generated schema matches the `LyraQuery` contract exactly, ensuring type compatibility.
 
+The schema is driven by `manifest.capabilities.facets` and `manifest.capabilities.ranges` as the source of truth for queryable fields. Only fields listed in these capability arrays will appear in the generated schema, ensuring fidelity with what Lyra actually supports for queries.
+
 ```ts
 declare function buildQuerySchema(
   manifest: LyraManifest,
@@ -615,8 +617,8 @@ interface QuerySchemaOptions {
 ```
 
 The generated schema includes:
-- `facets`: Object with facet field names as keys (with type-specific schemas)
-- `ranges`: Object with range field names as keys (with min/max number properties)
+- `facets`: Object with facet field names as keys (from `capabilities.facets`, with type-specific schemas)
+- `ranges`: Object with range field names as keys (from `capabilities.ranges`, with min/max number properties)
 - `limit`, `offset`: Optional number fields
 - `includeFacetCounts`: Optional boolean field
 

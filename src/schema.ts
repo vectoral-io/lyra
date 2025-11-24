@@ -23,9 +23,12 @@ export interface QuerySchemaOptions {
 /**
  * Build a JSON schema that describes the structure of a `LyraQuery` for a given manifest.
  *
- * The generated schema matches the `LyraQuery` contract:
- * - `facets`: Object with facet field names as keys
- * - `ranges`: Object with range field names as keys
+ * The generated schema matches the `LyraQuery` contract and is driven by
+ * `manifest.capabilities.facets` and `manifest.capabilities.ranges` as the
+ * source of truth for queryable fields.
+ *
+ * - `facets`: Object with facet field names as keys (from capabilities.facets)
+ * - `ranges`: Object with range field names as keys (from capabilities.ranges)
  * - `limit`, `offset`: Optional number fields
  * - `includeFacetCounts`: Optional boolean field
  *
@@ -39,62 +42,80 @@ export function buildQuerySchema(
 ): JsonSchema {
   const { facetArrayMode = 'single-or-array' } = options;
 
+  // Build a map of field names to field definitions for quick lookup
+  const fieldMap = new Map<string, LyraManifest['fields'][0]>();
+  for (const field of manifest.fields) {
+    fieldMap.set(field.name, field);
+  }
+
   const facetProperties: Record<string, unknown> = {};
   const rangeProperties: Record<string, unknown> = {};
 
-  // Build facet properties
-  for (const field of manifest.fields) {
-    if (field.kind === 'facet') {
-      // Determine base type from field.type
-      let baseType: string;
-      if (field.type === 'number') {
-        baseType = 'number';
-      }
-      else if (field.type === 'boolean') {
-        baseType = 'boolean';
-      }
-      else {
-        baseType = 'string';
-      }
-
-      // Build schema based on facetArrayMode
-      if (facetArrayMode === 'single') {
-        facetProperties[field.name] = {
-          type: baseType,
-        };
-      }
-      else {
-        // single-or-array (default)
-        facetProperties[field.name] = {
-          anyOf: [
-            { type: baseType },
-            { type: 'array', items: { type: baseType } },
-          ],
-        };
-      }
+  // Build facet properties from capabilities.facets (source of truth)
+  for (const fieldName of manifest.capabilities.facets) {
+    const field = fieldMap.get(fieldName);
+    if (!field) {
+      // Field not found in manifest.fields; skip (shouldn't happen in valid manifests)
+      continue;
     }
-    else if (field.kind === 'range') {
-      // Build range property schema
-      const description =
-        field.type === 'date'
-          ? 'min/max as Unix ms'
-          : 'numeric range';
-      rangeProperties[field.name] = {
-        type: 'object',
-        description,
-        properties: {
-          min: {
-            type: 'number',
-            description: 'Minimum value (inclusive)',
-          },
-          max: {
-            type: 'number',
-            description: 'Maximum value (inclusive)',
-          },
-        },
-        additionalProperties: false,
+
+    // Determine base type from field.type
+    let baseType: string;
+    if (field.type === 'number') {
+      baseType = 'number';
+    }
+    else if (field.type === 'boolean') {
+      baseType = 'boolean';
+    }
+    else {
+      baseType = 'string';
+    }
+
+    // Build schema based on facetArrayMode
+    if (facetArrayMode === 'single') {
+      facetProperties[fieldName] = {
+        type: baseType,
       };
     }
+    else {
+      // single-or-array (default)
+      facetProperties[fieldName] = {
+        anyOf: [
+          { type: baseType },
+          { type: 'array', items: { type: baseType } },
+        ],
+      };
+    }
+  }
+
+  // Build range properties from capabilities.ranges (source of truth)
+  for (const fieldName of manifest.capabilities.ranges) {
+    const field = fieldMap.get(fieldName);
+    if (!field) {
+      // Field not found in manifest.fields; skip (shouldn't happen in valid manifests)
+      continue;
+    }
+
+    // Build range property schema
+    const description =
+      field.type === 'date'
+        ? 'min/max as Unix ms'
+        : 'numeric range';
+    rangeProperties[fieldName] = {
+      type: 'object',
+      description,
+      properties: {
+        min: {
+          type: 'number',
+          description: 'Minimum value (inclusive)',
+        },
+        max: {
+          type: 'number',
+          description: 'Maximum value (inclusive)',
+        },
+      },
+      additionalProperties: false,
+    };
   }
 
   // Build top-level schema matching LyraQuery contract
