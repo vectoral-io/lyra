@@ -123,6 +123,71 @@ export interface CreateBundleConfig<TItem extends Record<string, unknown>> {
 }
 
 /**
+ * Helper type for extracting string field names from a type.
+ */
+export type FieldName<T> = Extract<keyof T, string>;
+
+/**
+ * Simple, ergonomic bundle configuration that infers types automatically.
+ *
+ * This config style allows you to specify fields by purpose (id, facets, ranges, meta)
+ * rather than requiring full field definitions. Types are inferred from the data at runtime.
+ *
+ * @example
+ * ```ts
+ * const bundle = await createBundle(tickets, {
+ *   datasetId: 'tickets-2025-11-22',
+ *   id: 'id', // optional; will auto-detect 'id'/'Id'/'ID' if omitted
+ *   facets: ['customer', 'priority', 'status'],
+ *   ranges: ['createdAt'],
+ *   autoMeta: true, // default: auto-add remaining simple fields as meta
+ * });
+ * ```
+ */
+export interface SimpleBundleConfig<TItem extends Record<string, unknown>> {
+  datasetId: string;
+  /**
+   * Explicit ID field name. If omitted, will auto-detect from common patterns:
+   * 'id', 'Id', or 'ID'.
+   */
+  id?: FieldName<TItem>;
+  /**
+   * Fields to index as facets (for equality filtering).
+   */
+  facets?: FieldName<TItem>[];
+  /**
+   * Fields to index as ranges (for numeric/date range filtering).
+   * Must be numeric or date values.
+   */
+  ranges?: FieldName<TItem>[];
+  /**
+   * Fields to include in manifest as meta (non-indexed, schema-visible).
+   */
+  meta?: FieldName<TItem>[];
+  /**
+   * How aggressively to infer field types.
+   * - 'runtime': Inspect actual values in the data (default)
+   * - 'none': Default all fields to 'string' type
+   */
+  inferTypes?: 'none' | 'runtime';
+  /**
+   * Whether to automatically add remaining simple fields as meta.
+   * Defaults to `true`. When enabled, any primitive fields not explicitly
+   * configured as id/facet/range/meta will be added to the manifest as meta fields.
+   * Complex/nested fields are always skipped.
+   */
+  autoMeta?: boolean;
+}
+
+/**
+ * Union type representing either explicit or simple bundle configuration.
+ * Used internally by `createBundle` to support both configuration styles.
+ */
+export type AnyBundleConfig<TItem extends Record<string, unknown>> =
+  | CreateBundleConfig<TItem>
+  | SimpleBundleConfig<TItem>;
+
+/**
  * Internal type for facet posting lists (not exported, but needed for bundle JSON).
  * @internal
  */

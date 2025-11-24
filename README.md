@@ -251,6 +251,7 @@ const tickets: Ticket[] = [
   // ...
 ];
 
+// Explicit config style (full control)
 const bundle = await createBundle(tickets, {
   datasetId: 'tickets-2025-11-22',
   fields: {
@@ -261,6 +262,15 @@ const bundle = await createBundle(tickets, {
     productArea: { kind: 'facet', type: 'string' },
     createdAt:   { kind: 'range', type: 'date' },
   },
+});
+
+// Simple config style (ergonomic, with type inference)
+const bundleSimple = await createBundle(tickets, {
+  datasetId: 'tickets-2025-11-22',
+  id: 'id', // optional; will auto-detect 'id'/'Id'/'ID' if omitted
+  facets: ['customer', 'priority', 'status', 'productArea'],
+  ranges: ['createdAt'],
+  // autoMeta: true, // default: auto-add remaining simple fields as meta
 });
 
 // Serialize and persist bundle (JSON for v1)
@@ -358,12 +368,19 @@ Lyra’s v1 API is intentionally small and stable.
 
 #### `createBundle<T>(items, config)`
 
-Builds a bundle from an array of items.
+Builds a bundle from an array of items. Supports both explicit and simple configuration styles.
 
 ```ts
+// Explicit config (full control)
 declare function createBundle<T extends Record<string, unknown>>(
   items: T[],
   config: CreateBundleConfig<T>
+): Promise<LyraBundle<T>>;
+
+// Simple config (ergonomic, with type inference)
+declare function createBundle<T extends Record<string, unknown>>(
+  items: T[],
+  config: SimpleBundleConfig<T>
 ): Promise<LyraBundle<T>>;
 ```
 
@@ -398,7 +415,7 @@ class LyraBundle<T extends Record<string, unknown>> {
 
 #### `CreateBundleConfig<TItem>`
 
-Bundle configuration for a given item type. The generic parameter ensures compile-time field name validation.
+Explicit bundle configuration for a given item type. The generic parameter ensures compile-time field name validation.
 
 ```ts
 interface FieldDefinition {
@@ -429,6 +446,56 @@ const config: CreateBundleConfig<Ticket> = {
 };
 ```
 
+#### `SimpleBundleConfig<TItem>`
+
+Simple, ergonomic bundle configuration that infers types automatically. This config style allows you to specify fields by purpose (id, facets, ranges, meta) rather than requiring full field definitions.
+
+```ts
+interface SimpleBundleConfig<TItem extends Record<string, unknown>> {
+  datasetId: string;
+  /** Explicit ID field name. If omitted, will auto-detect from 'id'/'Id'/'ID'. */
+  id?: FieldName<TItem>;
+  /** Fields to index as facets (for equality filtering). */
+  facets?: FieldName<TItem>[];
+  /** Fields to index as ranges (for numeric/date range filtering). */
+  ranges?: FieldName<TItem>[];
+  /** Fields to include in manifest as meta (non-indexed, schema-visible). */
+  meta?: FieldName<TItem>[];
+  /** How aggressively to infer field types. Default: 'runtime'. */
+  inferTypes?: 'none' | 'runtime';
+  /** Whether to auto-add remaining simple fields as meta. Default: true. */
+  autoMeta?: boolean;
+}
+```
+
+Example:
+
+```ts
+const bundle = await createBundle(tickets, {
+  datasetId: 'tickets-2025-11-22',
+  facets: ['customer', 'priority', 'status'],
+  ranges: ['createdAt'],
+  // Types are inferred from the data automatically
+});
+```
+
+**Auto-meta behavior:**
+
+By default, any remaining primitive fields that are not configured as id, facet, or range are automatically added to the manifest as meta fields. This makes the full record shape visible to agents and tooling while keeping the index focused.
+
+- **Simple fields** (primitives and arrays of primitives) are auto-added as meta
+- **Complex fields** (objects, nested structures) are silently skipped
+- Set `autoMeta: false` to disable this behavior for wide or messy schemas
+
+```ts
+// Disable auto-meta for wide tables
+const bundle = await createBundle(wideTable, {
+  datasetId: 'wide',
+  facets: ['status'],
+  autoMeta: false, // Only explicitly configured fields will appear
+});
+```
+
 #### `LyraQuery`
 
 `LyraQuery` is defined in [Query and result](#query-and-result). It supports:
@@ -457,6 +524,8 @@ const config: CreateBundleConfig<Ticket> = {
 - `FieldType` - `'string' | 'number' | 'boolean' | 'date'`
 - `FieldDefinition` - Field configuration object
 - `FacetCounts` - Aggregated facet counts for a result set
+- `SimpleBundleConfig<TItem>` - Simple, ergonomic bundle configuration with type inference
+- `AnyBundleConfig<TItem>` - Union type representing either explicit or simple config
 
 ## Error Behavior
 
@@ -468,6 +537,10 @@ const config: CreateBundleConfig<Ticket> = {
   - `kind` not in `['id','facet','range','meta']`
   - `type` not in `['string','number','boolean','date']`
   - Error message: `Invalid field kind "foo" for field "status". Must be one of: id, facet, range, meta.`
+
+- **Invalid range type inference** (simple config only):
+  - Range field contains non-numeric, non-date string values
+  - Error message: `Cannot infer range type for field "createdAt". Encountered non-numeric, non-date string value: "invalid".`
 
 **Soft behavior:**
 

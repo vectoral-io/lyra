@@ -3,6 +3,7 @@ import {
   LyraBundle,
   createBundle,
   type CreateBundleConfig,
+  type SimpleBundleConfig,
 } from '../src';
 import { generateTicketArray, type Ticket } from './tickets.fixture';
 import { DATASET_SIZE, testConfig } from './test-config';
@@ -488,5 +489,279 @@ describe('LyraBundle - Core Functionality', () => {
         fields: {},
       }),
     ).rejects.toThrow('Invalid bundle: fields array must not be empty');
+  });
+});
+
+
+describe('Simple Bundle Config', () => {
+  it('creates bundle with simple config and auto-detected id', async () => {
+    const tickets = generateTicketArray(100);
+    const simpleConfig: SimpleBundleConfig<Ticket> = {
+      datasetId: 'tickets-simple',
+      facets: ['priority', 'status'],
+      ranges: ['createdAt'],
+    };
+
+    const bundle = await createBundle(tickets, simpleConfig);
+    const manifest = bundle.describe();
+
+    expect(manifest.datasetId).toBe('tickets-simple');
+    expect(manifest.fields.find((f) => f.name === 'id')).toBeDefined();
+    expect(manifest.fields.find((f) => f.name === 'id')?.kind).toBe('id');
+    expect(manifest.capabilities.facets).toContain('priority');
+    expect(manifest.capabilities.facets).toContain('status');
+    expect(manifest.capabilities.ranges).toContain('createdAt');
+  });
+
+
+  it('creates bundle with simple config and explicit id', async () => {
+    const tickets = generateTicketArray(100);
+    const simpleConfig: SimpleBundleConfig<Ticket> = {
+      datasetId: 'tickets-simple',
+      id: 'id',
+      facets: ['customerId', 'priority'],
+      ranges: ['slaHours'],
+    };
+
+    const bundle = await createBundle(tickets, simpleConfig);
+    const manifest = bundle.describe();
+
+    expect(manifest.fields.find((f) => f.name === 'id')?.kind).toBe('id');
+    expect(manifest.capabilities.facets).toContain('customerId');
+    expect(manifest.capabilities.facets).toContain('priority');
+    expect(manifest.capabilities.ranges).toContain('slaHours');
+  });
+
+
+  it('infers types correctly in runtime mode', async () => {
+    const tickets = generateTicketArray(100);
+    const simpleConfig: SimpleBundleConfig<Ticket> = {
+      datasetId: 'tickets-simple',
+      facets: ['priority', 'status', 'isEscalated'],
+      ranges: ['slaHours', 'createdAt'],
+      inferTypes: 'runtime',
+    };
+
+    const bundle = await createBundle(tickets, simpleConfig);
+    const manifest = bundle.describe();
+
+    const priorityField = manifest.fields.find((f) => f.name === 'priority');
+    expect(priorityField?.type).toBe('string');
+
+    const isEscalatedField = manifest.fields.find((f) => f.name === 'isEscalated');
+    expect(isEscalatedField?.type).toBe('boolean');
+
+    const slaHoursField = manifest.fields.find((f) => f.name === 'slaHours');
+    expect(slaHoursField?.type).toBe('number');
+
+    const createdAtField = manifest.fields.find((f) => f.name === 'createdAt');
+    expect(createdAtField?.type).toBe('date');
+  });
+
+
+  it('defaults to string type in none mode', async () => {
+    const tickets = generateTicketArray(100);
+    const simpleConfig: SimpleBundleConfig<Ticket> = {
+      datasetId: 'tickets-simple',
+      facets: ['priority', 'isEscalated'],
+      ranges: ['slaHours'],
+      inferTypes: 'none',
+    };
+
+    const bundle = await createBundle(tickets, simpleConfig);
+    const manifest = bundle.describe();
+
+    const isEscalatedField = manifest.fields.find((f) => f.name === 'isEscalated');
+    expect(isEscalatedField?.type).toBe('string');
+
+    const slaHoursField = manifest.fields.find((f) => f.name === 'slaHours');
+    expect(slaHoursField?.type).toBe('number'); // ranges default to number in none mode
+  });
+
+
+  it('auto-adds remaining simple fields as meta by default', async () => {
+    const tickets = generateTicketArray(100);
+    const simpleConfig: SimpleBundleConfig<Ticket> = {
+      datasetId: 'tickets-simple',
+      facets: ['priority', 'status'],
+      ranges: ['createdAt'],
+      // autoMeta defaults to true
+    };
+
+    const bundle = await createBundle(tickets, simpleConfig);
+    const manifest = bundle.describe();
+
+    // Explicitly configured fields
+    expect(manifest.fields.find((f) => f.name === 'id')).toBeDefined();
+    expect(manifest.fields.find((f) => f.name === 'priority')).toBeDefined();
+    expect(manifest.fields.find((f) => f.name === 'status')).toBeDefined();
+    expect(manifest.fields.find((f) => f.name === 'createdAt')).toBeDefined();
+    expect(manifest.fields.find((f) => f.name === 'createdAt')?.kind).toBe('range');
+
+    // Auto-added meta fields (simple primitives)
+    expect(manifest.fields.find((f) => f.name === 'customerId')).toBeDefined();
+    expect(manifest.fields.find((f) => f.name === 'customerId')?.kind).toBe('meta');
+    expect(manifest.fields.find((f) => f.name === 'customerName')).toBeDefined();
+    expect(manifest.fields.find((f) => f.name === 'customerName')?.kind).toBe('meta');
+    expect(manifest.fields.find((f) => f.name === 'isEscalated')).toBeDefined();
+    expect(manifest.fields.find((f) => f.name === 'isEscalated')?.kind).toBe('meta');
+    expect(manifest.fields.find((f) => f.name === 'slaHours')).toBeDefined();
+    expect(manifest.fields.find((f) => f.name === 'slaHours')?.kind).toBe('meta'); // auto-added as meta
+  });
+
+
+  it('skips auto-meta when autoMeta is false', async () => {
+    const tickets = generateTicketArray(100);
+    const simpleConfig: SimpleBundleConfig<Ticket> = {
+      datasetId: 'tickets-simple',
+      facets: ['priority', 'status'],
+      ranges: ['createdAt'],
+      autoMeta: false,
+    };
+
+    const bundle = await createBundle(tickets, simpleConfig);
+    const manifest = bundle.describe();
+
+    // Only explicitly configured fields should be present
+    const fieldNames = manifest.fields.map((f) => f.name);
+    expect(fieldNames).toContain('id'); // auto-detected
+    expect(fieldNames).toContain('priority');
+    expect(fieldNames).toContain('status');
+    expect(fieldNames).toContain('createdAt');
+
+    // Auto-meta fields should not be present
+    expect(fieldNames).not.toContain('customerId');
+    expect(fieldNames).not.toContain('customerName');
+    expect(fieldNames).not.toContain('isEscalated');
+  });
+
+
+  it('skips complex/nested fields in auto-meta', async () => {
+    const ticketsWithComplex = generateTicketArray(10).map((ticket) => ({
+      ...ticket,
+      metadata: { nested: 'object' },
+      tags: ['tag1', 'tag2'], // array of primitives - should be included
+    }));
+
+    const simpleConfig: SimpleBundleConfig<typeof ticketsWithComplex[0]> = {
+      datasetId: 'tickets-complex',
+      facets: ['priority'],
+      // autoMeta defaults to true
+    };
+
+    const bundle = await createBundle(ticketsWithComplex, simpleConfig);
+    const manifest = bundle.describe();
+
+    const fieldNames = manifest.fields.map((f) => f.name);
+
+    // Simple fields should be auto-added
+    expect(fieldNames).toContain('tags'); // array of primitives
+
+    // Complex objects should be skipped
+    expect(fieldNames).not.toContain('metadata');
+  });
+
+
+  it('handles explicit meta fields', async () => {
+    const tickets = generateTicketArray(100);
+    const simpleConfig: SimpleBundleConfig<Ticket> = {
+      datasetId: 'tickets-simple',
+      facets: ['priority'],
+      meta: ['customerName', 'ownerTeam'],
+    };
+
+    const bundle = await createBundle(tickets, simpleConfig);
+    const manifest = bundle.describe();
+
+    const customerNameField = manifest.fields.find((f) => f.name === 'customerName');
+    expect(customerNameField?.kind).toBe('meta');
+    expect(customerNameField).toBeDefined();
+
+    const ownerTeamField = manifest.fields.find((f) => f.name === 'ownerTeam');
+    expect(ownerTeamField?.kind).toBe('meta');
+    expect(ownerTeamField).toBeDefined();
+  });
+
+
+  it('produces equivalent results with simple and explicit configs', async () => {
+    const tickets = generateTicketArray(DATASET_SIZE);
+
+    const simpleConfig: SimpleBundleConfig<Ticket> = {
+      datasetId: 'tickets-simple',
+      facets: ['priority', 'status', 'customerId'],
+      ranges: ['createdAt'],
+    };
+
+    const bundleSimple = await createBundle(tickets, simpleConfig);
+    const bundleExplicit = await createBundle(tickets, testConfig);
+
+    const query = {
+      facets: {
+        priority: 'high',
+        status: 'open',
+      },
+    };
+
+    const resultSimple = bundleSimple.query(query);
+    const resultExplicit = bundleExplicit.query(query);
+
+    expect(resultSimple.total).toBe(resultExplicit.total);
+    expect(resultSimple.items.length).toBe(resultExplicit.items.length);
+  });
+
+
+  it('throws error for invalid range type', async () => {
+    const ticketsWithInvalidRange = [
+      {
+        id: 'T-1',
+        status: 'open',
+        invalidRange: 'not-a-number-or-date',
+      },
+    ];
+
+    const simpleConfig: SimpleBundleConfig<typeof ticketsWithInvalidRange[0]> = {
+      datasetId: 'test',
+      ranges: ['invalidRange'],
+    };
+
+    await expect(createBundle(ticketsWithInvalidRange, simpleConfig)).rejects.toThrow(
+      'Cannot infer range type',
+    );
+  });
+
+
+  it('handles empty items array gracefully', async () => {
+    const simpleConfig: SimpleBundleConfig<Ticket> = {
+      datasetId: 'empty',
+      facets: ['priority'],
+    };
+
+    const bundle = await createBundle([], simpleConfig);
+    const manifest = bundle.describe();
+
+    expect(manifest.datasetId).toBe('empty');
+    expect(manifest.fields.length).toBeGreaterThan(0); // id should be auto-detected even with empty array
+  });
+
+
+  it('works with createBundle overloads for type inference', async () => {
+    const tickets = generateTicketArray(100);
+
+    // Test explicit config overload
+    const explicitBundle = await createBundle(tickets, testConfig);
+    expect(explicitBundle).toBeDefined();
+
+    // Test simple config overload
+    const simpleConfig: SimpleBundleConfig<Ticket> = {
+      datasetId: 'test',
+      facets: ['priority'],
+    };
+    const simpleBundle = await createBundle(tickets, simpleConfig);
+    expect(simpleBundle).toBeDefined();
+
+    // Both should work
+    const result1 = explicitBundle.query({ facets: { priority: 'high' } });
+    const result2 = simpleBundle.query({ facets: { priority: 'high' } });
+    expect(result1.total).toBe(result2.total);
   });
 });

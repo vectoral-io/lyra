@@ -7,6 +7,7 @@ export { createBundle, LyraBundle } from './bundle';
 // ==============================
 
 export type {
+  AnyBundleConfig,
   CreateBundleConfig,
   FieldKind,
   FieldType,
@@ -16,4 +17,5 @@ export type {
   LyraResult,
   LyraSnapshotInfo,
   LyraBundleJSON,
+  SimpleBundleConfig,
 } from './types';
