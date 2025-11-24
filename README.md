@@ -72,13 +72,13 @@ You can combine Lyra with those when needed.
 ## Installation
 
 ```bash
-npm install lyra
+npm install @vectoral/lyra
 # or
-yarn add lyra
+yarn add @vectoral/lyra
 # or
-pnpm add lyra
+pnpm add @vectoral/lyra
 # or
-bun add lyra
+bun add @vectoral/lyra
 ```
 
 
@@ -90,7 +90,7 @@ A **bundle** is the main artifact Lyra works with. It consists of:
 
 - A **manifest** describing the dataset, fields, and capabilities.
 - Precomputed **indexes** for facets and ranges.
-- Optionally, a compact representation of the items themselves.
+- The bundle currently stores items as a plain array; future versions may add more compact representations for large datasets.
 
 You typically:
 
@@ -105,7 +105,16 @@ The manifest is a JSON description embedded in the bundle. It includes:
 - `datasetId`: logical name or ID for the dataset.
 - `builtAt`: snapshot timestamp.
 - `fields`: list of fields, their types, and roles (facet/range/meta).
-- `capabilities`: which fields can be faceted, ranged, or searched.
+- `capabilities`: which fields can be faceted or ranged.
+
+#### Field kinds
+
+Each field in the manifest has a `kind` that determines how it's used:
+
+- **`id`**: Identifier field; currently informational for the manifest (not specially indexed).
+- **`facet`**: Indexed for equality and IN filters. Values are stored in a posting list index for fast intersection.
+- **`range`**: Considered in numeric/date range filters. Values are checked at query time against min/max bounds.
+- **`meta`**: Included in the manifest for schema awareness, but not indexed. Useful for agent/tool descriptions and documentation.
 
 Example (simplified):
 
@@ -129,19 +138,27 @@ Example (simplified):
 }
 ```
 
+The `ops` array on each field is descriptive metadata generated from the `kind` (facet vs range). It documents which operations are meaningful for that field but does not change query semantics in v1.
+
 ### Query and result
 
-Lyra’s query model is simple and agent-friendly:
+Lyra's query model is simple and agent-friendly:
 
 ```ts
-type FacetFilter = Record<string, unknown | unknown[]>;
-type RangeFilter = Record<string, { min?: number; max?: number }>;
+type FacetPrimitive = string | number | boolean;
+type FacetValue = FacetPrimitive | FacetPrimitive[];
+
+interface RangeFilter {
+  min?: number;
+  max?: number;
+}
 
 interface LyraQuery {
-  facets?: FacetFilter;
-  ranges?: RangeFilter;
+  facets?: Record<string, FacetValue>;
+  ranges?: Record<string, RangeFilter>;
   limit?: number;
   offset?: number;
+  includeFacetCounts?: boolean;
 }
 
 interface FacetCounts {
@@ -158,12 +175,34 @@ interface LyraResult<Item = unknown> {
   items: Item[];
   total: number;
   applied: {
-    facets?: FacetFilter;
-    ranges?: RangeFilter;
+    facets?: LyraQuery['facets'];
+    ranges?: LyraQuery['ranges'];
   };
   facets?: FacetCounts; // optional facet counts for drilldown
   snapshot: LyraSnapshotInfo;
 }
+```
+
+#### Range semantics
+
+Range queries work differently depending on the field type:
+
+- **For `type: 'number'`**: Lyra compares the numeric value directly.
+- **For `type: 'date'`**: Lyra attempts to parse the field using `Date.parse(value)` and compares the resulting timestamp (milliseconds since Unix epoch).
+- **Query `min`/`max` values are always numbers**. For fields declared as `type: 'date'`, these numbers are interpreted as Unix timestamps in milliseconds (e.g. from `Date.now()` or `new Date().getTime()`).
+- **Items with unparseable date values are excluded** from range results.
+
+Example:
+
+```ts
+const now = Date.now();
+const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+
+const query: LyraQuery = {
+  ranges: {
+    createdAt: { min: oneWeekAgo, max: now },
+  },
+};
 ```
 
 
@@ -174,8 +213,16 @@ interface LyraResult<Item = unknown> {
 You typically do this in a build step or backend process.
 
 ```ts
-import { createBundle } from 'lyra';
+import { createBundle } from '@vectoral/lyra';
 
+type Ticket = {
+  id: string;
+  customer: string;
+  priority: 'low' | 'medium' | 'high';
+  status: 'open' | 'in_progress' | 'closed';
+  productArea: string;
+  createdAt: string; // ISO date
+};
 
 const tickets: Ticket[] = [
   {
@@ -219,7 +266,7 @@ const json = JSON.stringify(bundle.toJSON());
 In your app, server, or edge function:
 
 ```ts
-import { LyraBundle, type LyraQuery, type LyraResult } from 'lyra';
+import { LyraBundle, type LyraQuery, type LyraResult } from '@vectoral/lyra';
 
 // Load previously stored JSON (string or plain object)
 const stored = await fetch('/data/tickets-bundle.json').then((r) => r.json());
@@ -273,7 +320,7 @@ Lyra is designed to be wrapped as a tool.
 A minimal conceptual pattern:
 
 ```ts
-import { LyraBundle, type LyraQuery, type LyraResult } from 'lyra';
+import { LyraBundle, type LyraQuery, type LyraResult } from '@vectoral/lyra';
 
 // Somewhere in your agent setup:
 const ticketsBundle = LyraBundle.load<Ticket>(storedBundle);
@@ -375,42 +422,22 @@ const config: CreateBundleConfig<Ticket> = {
 
 #### `LyraQuery`
 
-Query parameters for executing facet and range filters.
+`LyraQuery` is defined in [Query and result](#query-and-result). It supports:
 
-```ts
-type FacetPrimitive = string | number | boolean;
-type FacetValue = FacetPrimitive | FacetPrimitive[];
-
-type RangeFilter = {
-  min?: number;
-  max?: number;
-};
-
-interface LyraQuery {
-  facets?: Record<string, FacetValue>;
-  ranges?: Record<string, RangeFilter>;
-  limit?: number;
-  offset?: number;
-  includeFacetCounts?: boolean;
-}
-```
+- facet filters (`facets`)
+- range filters (`ranges`)
+- pagination (`limit`, `offset`)
+- optional facet counts (`includeFacetCounts`)
 
 #### `LyraResult<T>`
 
-Structured result of executing a query.
+`LyraResult<T>` is defined in [Query and result](#query-and-result) and wraps:
 
-```ts
-interface LyraResult<Item = unknown> {
-  items: Item[];
-  total: number;
-  applied: {
-    facets?: LyraQuery['facets'];
-    ranges?: LyraQuery['ranges'];
-  };
-  facets?: FacetCounts;
-  snapshot: LyraSnapshotInfo;
-}
-```
+- the matching items,
+- the total count,
+- the applied query,
+- optional facet counts, and
+- snapshot metadata.
 
 #### Other Types
 
