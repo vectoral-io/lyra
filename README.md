@@ -827,7 +827,9 @@ All of these behaviors are deterministic and documented. Bad types in query para
 
 ## Status and roadmap
 
-Lyra v1 is stable and ready for use.
+### Status
+
+**Lyra v1.0.0 is stable and production-ready.** This release marks the first stable version of the library with a complete feature set for building and querying faceted index bundles.
 
 **Completed:**
 

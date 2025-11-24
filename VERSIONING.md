@@ -10,6 +10,8 @@ The **NPM package version** (in `package.json`) tracks the library code version.
 - **MINOR**: New features, backward compatible
 - **PATCH**: Bug fixes, backward compatible
 
+**Current version:** `1.0.0` (first stable release)
+
 ## Bundle Format Version
 
 The **bundle format version** (in `manifest.version`) tracks the bundle JSON format version. This is independent of the NPM package version.
@@ -17,8 +19,9 @@ The **bundle format version** (in `manifest.version`) tracks the bundle JSON for
 ### Version 1.x
 
 - All bundle JSONs with `manifest.version` starting with `"1."` are supported by Lyra 1.x
-- The format is stable within v1 (e.g., `1.0.0`, `1.1.0`, `1.2.3` are all compatible)
+- The format is stable within v1 (e.g., `"1.0.0"`, `"1.1.0"`, `"1.2.3"` are all compatible)
 - Format changes within v1 are additive only (new optional fields, etc.)
+- Bundles created with Lyra 1.0.0 will have `manifest.version` set to `"1.0.0"` (or compatible `"1.x"` format)
 
 ### Future Versions
 

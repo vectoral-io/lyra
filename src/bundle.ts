@@ -335,7 +335,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
     options?: { facets?: LyraQuery['facets']; ranges?: LyraQuery['ranges'] },
   ): { field: string; values: Array<{ value: string | number | boolean; count: number }> } {
     // Robust field validation: check both capabilities and field kind
-    const fieldDef = this.manifest.fields.find((f) => f.name === field);
+    const fieldDef = this.manifest.fields.find((fieldDef) => fieldDef.name === field);
     if (
       !fieldDef ||
       fieldDef.kind !== 'facet' ||
@@ -364,14 +364,14 @@ export class LyraBundle<T extends Record<string, unknown>> {
     }
 
     // Sort by value for stable ordering
-    values.sort((a, b) => {
-      if (typeof a.value === 'number' && typeof b.value === 'number') {
-        return a.value - b.value;
+    values.sort((first, second) => {
+      if (typeof first.value === 'number' && typeof second.value === 'number') {
+        return first.value - second.value;
       }
-      if (typeof a.value === 'boolean' && typeof b.value === 'boolean') {
-        return Number(a.value) - Number(b.value); // false (0) before true (1)
+      if (typeof first.value === 'boolean' && typeof second.value === 'boolean') {
+        return Number(first.value) - Number(second.value); // false (0) before true (1)
       }
-      return String(a.value).localeCompare(String(b.value));
+      return String(first.value).localeCompare(String(second.value));
     });
 
     return { field, values };

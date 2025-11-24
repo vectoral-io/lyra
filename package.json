@@ -1,9 +1,38 @@
 {
   "name": "@vectoral/lyra",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "type": "module",
+  "description": "A lightweight engine for building precomputed, faceted index bundles from structured data",
+  "keywords": [
+    "faceted-search",
+    "index",
+    "bundle",
+    "query",
+    "filter",
+    "agent",
+    "llm",
+    "structured-data",
+    "dashboard",
+    "edge-computing"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vectoral-io/lyra.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vectoral-io/lyra/issues"
+  },
+  "homepage": "https://github.com/vectoral-io/lyra#readme",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "sideEffects": false,
   "files": [
     "dist"
   ],
