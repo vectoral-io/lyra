@@ -101,6 +101,8 @@ You typically:
 2. Persist it (filesystem, object storage, CDN).
 3. Load and query it in your app or agent.
 
+**Bundle format specification:** The normative specification of the Lyra bundle JSON format lives in [`docs/bundle-json-spec.md`](./docs/bundle-json-spec.md). Any change to `LyraBundle.toJSON()` or `LyraBundle.load()` must be reflected in that document.
+
 ### Manifest
 
 The manifest is a JSON description embedded in the bundle. It includes:

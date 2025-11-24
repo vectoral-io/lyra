@@ -1,0 +1,48 @@
+[
+  {
+    "id": "T-1001",
+    "customer": "Acme Corp",
+    "priority": "high",
+    "status": "open",
+    "productArea": "analytics",
+    "createdAt": "2025-11-20T10:15:00Z",
+    "amount": 1500
+  },
+  {
+    "id": "T-1002",
+    "customer": "Acme Corp",
+    "priority": "medium",
+    "status": "in_progress",
+    "productArea": "core",
+    "createdAt": "2025-11-19T08:30:00Z",
+    "amount": 500
+  },
+  {
+    "id": "T-1003",
+    "customer": "Globex Inc",
+    "priority": "high",
+    "status": "open",
+    "productArea": "analytics",
+    "createdAt": "2025-11-21T14:20:00Z",
+    "amount": 2000
+  },
+  {
+    "id": "T-1004",
+    "customer": "Globex Inc",
+    "priority": "low",
+    "status": "closed",
+    "productArea": "billing",
+    "createdAt": "2025-11-18T09:00:00Z",
+    "amount": 300
+  },
+  {
+    "id": "T-1005",
+    "customer": "Acme Corp",
+    "priority": "high",
+    "status": "open",
+    "productArea": "core",
+    "createdAt": "2025-11-22T11:00:00Z",
+    "amount": 1800
+  }
+]
+

@@ -1,0 +1,185 @@
+{
+  "manifest": {
+    "version": "1.0.0",
+    "datasetId": "tickets-example",
+    "builtAt": "2025-11-24T05:13:31.063Z",
+    "fields": [
+      {
+        "name": "id",
+        "kind": "id",
+        "type": "string",
+        "ops": [
+          "eq",
+          "in"
+        ]
+      },
+      {
+        "name": "customer",
+        "kind": "facet",
+        "type": "string",
+        "ops": [
+          "eq",
+          "in"
+        ]
+      },
+      {
+        "name": "priority",
+        "kind": "facet",
+        "type": "string",
+        "ops": [
+          "eq",
+          "in"
+        ]
+      },
+      {
+        "name": "status",
+        "kind": "facet",
+        "type": "string",
+        "ops": [
+          "eq",
+          "in"
+        ]
+      },
+      {
+        "name": "productArea",
+        "kind": "facet",
+        "type": "string",
+        "ops": [
+          "eq",
+          "in"
+        ]
+      },
+      {
+        "name": "createdAt",
+        "kind": "range",
+        "type": "date",
+        "ops": [
+          "between",
+          "gte",
+          "lte"
+        ]
+      },
+      {
+        "name": "amount",
+        "kind": "range",
+        "type": "number",
+        "ops": [
+          "between",
+          "gte",
+          "lte"
+        ]
+      }
+    ],
+    "capabilities": {
+      "facets": [
+        "customer",
+        "priority",
+        "status",
+        "productArea"
+      ],
+      "ranges": [
+        "createdAt",
+        "amount"
+      ]
+    }
+  },
+  "items": [
+    {
+      "id": "T-1001",
+      "customer": "Acme Corp",
+      "priority": "high",
+      "status": "open",
+      "productArea": "analytics",
+      "createdAt": "2025-11-20T10:15:00Z",
+      "amount": 1500
+    },
+    {
+      "id": "T-1002",
+      "customer": "Acme Corp",
+      "priority": "medium",
+      "status": "in_progress",
+      "productArea": "core",
+      "createdAt": "2025-11-19T08:30:00Z",
+      "amount": 500
+    },
+    {
+      "id": "T-1003",
+      "customer": "Globex Inc",
+      "priority": "high",
+      "status": "open",
+      "productArea": "analytics",
+      "createdAt": "2025-11-21T14:20:00Z",
+      "amount": 2000
+    },
+    {
+      "id": "T-1004",
+      "customer": "Globex Inc",
+      "priority": "low",
+      "status": "closed",
+      "productArea": "billing",
+      "createdAt": "2025-11-18T09:00:00Z",
+      "amount": 300
+    },
+    {
+      "id": "T-1005",
+      "customer": "Acme Corp",
+      "priority": "high",
+      "status": "open",
+      "productArea": "core",
+      "createdAt": "2025-11-22T11:00:00Z",
+      "amount": 1800
+    }
+  ],
+  "facetIndex": {
+    "customer": {
+      "Acme Corp": [
+        0,
+        1,
+        4
+      ],
+      "Globex Inc": [
+        2,
+        3
+      ]
+    },
+    "priority": {
+      "high": [
+        0,
+        2,
+        4
+      ],
+      "medium": [
+        1
+      ],
+      "low": [
+        3
+      ]
+    },
+    "status": {
+      "open": [
+        0,
+        2,
+        4
+      ],
+      "in_progress": [
+        1
+      ],
+      "closed": [
+        3
+      ]
+    },
+    "productArea": {
+      "analytics": [
+        0,
+        2
+      ],
+      "core": [
+        1,
+        4
+      ],
+      "billing": [
+        3
+      ]
+    }
+  }
+}

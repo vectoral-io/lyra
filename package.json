@@ -20,7 +20,10 @@
     "test": "bun run lint && vitest --config .config/vitest.config.ts",
     "test:watch": "bun run test --watch",
     "test:coverage": "bun run test --coverage",
-    "docs:generate": "typedoc --options .config/typedoc.config.json"
+    "docs:generate": "typedoc --options .config/typedoc.config.json",
+    "example:build": "bun run examples/basic-usage/build-bundle.ts",
+    "example:query": "bun run examples/basic-usage/query-bundle.ts",
+    "example:test": "bun run example:build && bun run example:query"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

@@ -555,6 +555,8 @@ export class LyraBundle<T extends Record<string, unknown>> {
 
   /**
    * Serialize the bundle to a plain JSON-compatible structure.
+   *
+   * NOTE: Any structural change here must be reflected in docs/bundle-json-spec.md
    */
   toJSON(): LyraBundleJSON<T> {
     return {
@@ -566,6 +568,8 @@ export class LyraBundle<T extends Record<string, unknown>> {
 
   /**
    * Load a bundle from a previously serialized JSON value.
+   *
+   * NOTE: Any structural change here must be reflected in docs/bundle-json-spec.md
    */
   static load<TItem extends Record<string, unknown>>(
     raw: LyraBundleJSON<TItem>,
