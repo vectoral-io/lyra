@@ -8,7 +8,9 @@
     "dist"
   ],
   "scripts": {
-    "bench": "bun run lint:fix && vitest --config .config/vitest.config.ts bench",
+    "bench:run": "bun run lint:fix && bun run tests/bench/run-benchmarks.ts",
+    "bench:check": "bun run lint:fix && bun run tests/bench/check-benchmarks.ts",
+    "bench:ci": "bun run bench:run && bun run bench:check",
     "build": "bun run lint:fix && rm -rf dist && tsc --project .config/tsconfig.json",
     "clean": "rm -rf node_modules bun.lock dist && bun install",
     "commit": "bun run lint:fix && git-cz",

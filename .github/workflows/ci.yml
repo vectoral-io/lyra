@@ -28,7 +28,10 @@ jobs:
         run: bun install
 
       - name: Run tests
-        run: bun run test:coverage
+        run: bun run test
+
+      - name: Run benchmarks
+        run: bun run bench:ci
 
   release:
     needs: test
