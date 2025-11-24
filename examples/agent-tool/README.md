@@ -8,6 +8,8 @@ This example demonstrates how to use Lyra bundles as tools for LLM agents, showi
 - `build-bundle.ts` - Builds a bundle using simple config and writes `bundle.json`
 - `agent-tool.ts` - Demonstrates the agent tool integration pattern
 
+**Note:** These examples use `../../dist/index.js` imports for local development. In your own projects, use `@vectoral/lyra` instead.
+
 ## Running the Example
 
 **Option 1: Using npm scripts (recommended)**

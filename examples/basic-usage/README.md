@@ -9,6 +9,8 @@ This example demonstrates how to build a Lyra bundle from a JSON dataset and que
 - `build-bundle.simple-config.ts` - Builds a bundle using simple config and writes `bundle.simple-config.json`
 - `query-bundle.ts` - Loads `bundle.json` and runs various queries
 
+**Note:** These examples use `../../dist/index.js` imports for local development. In your own projects, use `@vectoral/lyra` instead.
+
 ## Running the Example
 
 1. Build the bundle (explicit config):

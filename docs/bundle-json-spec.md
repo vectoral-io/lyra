@@ -121,7 +121,7 @@ Note: `ops` does not change query semantics in v1; it documents which operations
 
 #### `capabilities` (object, required)
 
-Describes which fields support which query types:
+Describes which fields support which query types. **The `capabilities` object is the authoritative source of truth for queryable fields.** Only fields listed in `capabilities.facets` can be used in facet filters, and only fields listed in `capabilities.ranges` can be used in range filters.
 
 ```json
 {
@@ -134,8 +134,8 @@ Describes which fields support which query types:
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `facets` | `Array<string>` | Yes | Field names that can be used in facet filters |
-| `ranges` | `Array<string>` | Yes | Field names that can be used in range filters |
+| `facets` | `Array<string>` | Yes | Field names that can be used in facet filters (source of truth) |
+| `ranges` | `Array<string>` | Yes | Field names that can be used in range filters (source of truth) |
 
 **Validation Rules:**
 
@@ -143,6 +143,12 @@ Describes which fields support which query types:
 - All field names in `capabilities.ranges` must exist in `fields` array
 - Facet fields must have `kind: "facet"` in their field definition
 - Range fields must have `kind: "range"` in their field definition
+
+**Query Behavior:**
+
+- Runtime queries only accept facet/range field names that appear in `capabilities.facets` and `capabilities.ranges`
+- Schema helpers (like `buildQuerySchema`) derive their schemas from `capabilities`, not from `fields` directly
+- Unknown facet or range fields in queries are treated as "no matches" (returns empty results)
 
 ## Items Structure
 
@@ -174,7 +180,7 @@ Facet fields may contain arrays of values:
 }
 ```
 
-Array values are treated as "matches if any value matches" in queries. See the main README for detailed query semantics.
+Array values are treated as "matches if any value matches" in queries. See the "Query and result" section in the [main README](../README.md#query-and-result) for detailed query semantics.
 
 ### Null and Undefined Values
 

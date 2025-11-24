@@ -101,7 +101,7 @@ You typically:
 2. Persist it (filesystem, object storage, CDN).
 3. Load and query it in your app or agent.
 
-**Bundle format specification:** The normative specification of the Lyra bundle JSON format lives in [`docs/bundle-json-spec.md`](./docs/bundle-json-spec.md). Any change to `LyraBundle.toJSON()` or `LyraBundle.load()` must be reflected in that document.
+**Bundle format specification:** The normative specification of the Lyra bundle JSON format lives in [`docs/bundle-json-spec.md`](./docs/bundle-json-spec.md). The `LyraBundle.toJSON()` method serializes bundles to this format, and `LyraBundle.load()` reads bundles from this format. Any change to these methods must be reflected in that document.
 
 ### Manifest
 
@@ -110,7 +110,7 @@ The manifest is a JSON description embedded in the bundle. It includes:
 - `datasetId`: logical name or ID for the dataset.
 - `builtAt`: snapshot timestamp.
 - `fields`: list of fields, their types, and roles (facet/range/meta).
-- `capabilities`: which fields can be faceted or ranged.
+- `capabilities`: which fields can be faceted or ranged. **The `capabilities` object is the authoritative source of truth for queryable fields.** Only fields listed in `capabilities.facets` can be used in facet filters, and only fields listed in `capabilities.ranges` can be used in range filters.
 
 #### Field kinds
 
@@ -327,6 +327,24 @@ console.log(result.snapshot);
   indexVersion: '1.0.0'
 }
 */
+
+// For dashboard filtering: request facet counts for drilldown UI
+const dashboardQuery: LyraQuery = {
+  facets: {
+    customer: 'Acme Corp',
+  },
+  includeFacetCounts: true, // Enable facet counts
+};
+
+const dashboardResult = bundle.query(dashboardQuery);
+console.log(dashboardResult.facets);
+/*
+{
+  status: { open: 5, closed: 3 },
+  priority: { high: 2, medium: 4, low: 2 },
+  productArea: { analytics: 3, core: 5 }
+}
+*/
 ```
 
 
@@ -395,34 +413,49 @@ const bundle = await createBundle(wideTable, {
 See [`examples/basic-usage/`](./examples/basic-usage/) for side-by-side examples of both configuration styles.
 
 
-## Using Lyra with an LLM agent (outline)
+## Using Lyra with an LLM agent
 
-Lyra is designed to be wrapped as a tool.
-
-A minimal conceptual pattern:
+Lyra is designed to be wrapped as a tool for LLM agents. Here's a complete integration pattern:
 
 ```ts
-import { LyraBundle, type LyraQuery, type LyraResult } from '@vectoral/lyra';
+import {
+  LyraBundle,
+  buildOpenAiTool,
+  type LyraQuery,
+  type LyraResult,
+} from '@vectoral/lyra';
 
-// Somewhere in your agent setup:
+// Load bundle at startup
 const ticketsBundle = LyraBundle.load<Ticket>(storedBundle);
 
+// Tool function that the agent will call
 async function lyraTicketsTool(args: LyraQuery): Promise<LyraResult<Ticket>> {
-  // In real code you should validate args against the manifest
   return ticketsBundle.query(args);
 }
+
+// Generate tool schema for OpenAI (or other frameworks)
+const tool = buildOpenAiTool(ticketsBundle.describe(), {
+  name: 'queryTickets',
+  description: 'Query support tickets using facet and range filters',
+});
+
+// Pass to your agent framework
+const response = await openai.chat.completions.create({
+  model: 'gpt-4',
+  tools: [tool],
+  // ...
+});
 ```
 
-When defining tools for your agent framework (e.g., OpenAI tool calling), you can:
+**Key points:**
 
-- Auto-generate the tool schema from `bundle.describe()` (the manifest).
-- Let the model choose facets and ranges based on the manifest’s field list.
+- Use `buildOpenAiTool(bundle.describe(), options)` to auto-generate the tool schema from the manifest
+- The generated schema is derived from `capabilities.facets` and `capabilities.ranges`, ensuring it matches what Lyra actually supports
+- The agent can call the tool function with facet/range filters based on the manifest's capabilities
+- Use `total` and `facets` in the result to help the agent refine or broaden queries
+- The `snapshot` metadata helps the agent understand data recency and identity
 
-The agent can then:
-
-- Call `lyraTicketsTool` with specific facet/range filters.
-- Use `total` and `facets` in the result to decide whether to refine or broaden queries.
-- Rely on `snapshot` to understand the recency and identity of the data.
+See [`examples/agent-tool/`](./examples/agent-tool/) for a complete working example.
 
 
 ## Public API
@@ -742,19 +775,18 @@ All of these behaviors are deterministic and documented. Bad types in query para
 
 ## Status and roadmap
 
-Lyra is early-stage.
+Lyra v1 is stable and ready for use.
 
-Near-term focus:
+**Completed:**
 
-- Solidify the manifest and query model.
-- Optimize in-memory index structures for medium-sized datasets.
-- Add small utilities for:
-  - schema inspection and diagnostics,
-  - basic facet counts in `LyraResult`.
+- ✅ Manifest and query model solidified
+- ✅ Basic facet counts in `LyraResult` (via `includeFacetCounts`)
+- ✅ First-class agent integration helpers (`buildQuerySchema`, `buildOpenAiTool`)
 
-Future directions:
+**Future directions:**
 
-- Optional binary format for faster load times and smaller bundles.
-- Segment support for very large datasets.
-- CLI for building, inspecting, and validating bundles.
-- First-class agent integration helpers (tool schema generation, validations).
+- Optional binary format for faster load times and smaller bundles
+- Segment support for very large datasets
+- CLI for building, inspecting, and validating bundles
+- Additional schema inspection and diagnostics utilities
+- Further optimizations for in-memory index structures
