@@ -215,6 +215,15 @@ describe('LyraBundle - Core Functionality', () => {
       } as any);
     }).toThrow('Invalid bundle JSON: missing manifest or items');
 
+    // Empty fields array
+    const bundleWithEmptyFields = await LyraBundle.create<Ticket>(tickets, config);
+    const jsonWithEmptyFields = bundleWithEmptyFields.toJSON();
+    jsonWithEmptyFields.manifest.fields = [];
+
+    expect(() => {
+      LyraBundle.load<Ticket>(jsonWithEmptyFields);
+    }).toThrow('Invalid bundle: fields array must not be empty');
+
     // Invalid version
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
     const json = bundle.toJSON();
@@ -467,5 +476,17 @@ describe('LyraBundle - Core Functionality', () => {
 
     expect(result.total).toBeGreaterThan(0); // Total should still reflect all matches
     expect(result.items.length).toBe(0); // But no items should be returned
+  });
+
+
+  it('throws when creating bundle with empty fields', async () => {
+    const tickets = generateTicketArray(10);
+
+    await expect(
+      LyraBundle.create<Ticket>(tickets, {
+        datasetId: 'test',
+        fields: {},
+      }),
+    ).rejects.toThrow('Invalid bundle: fields array must not be empty');
   });
 });

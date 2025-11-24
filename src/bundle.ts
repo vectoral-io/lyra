@@ -203,6 +203,11 @@ function buildManifest<TItem extends Record<string, unknown>>(
       };
     });
 
+  // Validate that at least one field is defined
+  if (fields.length === 0) {
+    throw new Error('Invalid bundle: fields array must not be empty');
+  }
+
   return {
     version: '1.0.0',
     datasetId: config.datasetId,
@@ -576,6 +581,11 @@ export class LyraBundle<T extends Record<string, unknown>> {
       throw new Error(
         `Invalid bundle version: "${manifest.version}". Expected version starting with "1."`,
       );
+    }
+
+    // Validate that fields array is not empty
+    if (!manifest.fields || manifest.fields.length === 0) {
+      throw new Error('Invalid bundle: fields array must not be empty');
     }
 
     // Validate capabilities reference existing fields

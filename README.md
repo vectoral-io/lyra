@@ -33,7 +33,7 @@ Lyra fills the gap between those:
   Build once from your structured data, then reuse the bundle everywhere.
 
 - **Faceted filtering**  
-  Fast equality filters on fields like `status`, `priority`, `region`, `product`, etc.
+  Fast equality filters on fields like `status`, `priority`, `region`, `product`, etc. Facet fields may be single values or arrays of values; array fields are treated as "matches if any value matches".
 
 - **Range queries**  
   Filter by numeric or date ranges (`amount`, `createdAt`, `timestamp`, …).
@@ -49,6 +49,9 @@ Lyra fills the gap between those:
 
 - **Zero runtime ML cost**  
   No embeddings or models at query time. Just precomputed indexes and primitive operations.
+
+- **Practical performance profile**  
+  Lyra is optimized for sub-millisecond facet queries over medium-sized datasets (tens to low hundreds of thousands of records) on a single machine or runtime. It trades some build-time and memory for very fast filter intersections at query time.
 
 
 ## When to use Lyra
@@ -111,7 +114,7 @@ The manifest is a JSON description embedded in the bundle. It includes:
 
 Each field in the manifest has a `kind` that determines how it's used:
 
-- **`id`**: Identifier field; currently informational for the manifest (not specially indexed).
+- **`id`**: Identifier field; currently informational for the manifest. It is stored in the items like any other field and is not specially indexed in v1.
 - **`facet`**: Indexed for equality and IN filters. Values are stored in a posting list index for fast intersection.
 - **`range`**: Considered in numeric/date range filters. Values are checked at query time against min/max bounds.
 - **`meta`**: Included in the manifest for schema awareness, but not indexed. Useful for agent/tool descriptions and documentation.
@@ -204,6 +207,8 @@ const query: LyraQuery = {
   },
 };
 ```
+
+For how malformed or unknown fields are handled, see [Error Behavior](#error-behavior).
 
 
 ## Quick start
@@ -375,7 +380,7 @@ class LyraBundle<T extends Record<string, unknown>> {
   // Get snapshot metadata
   snapshot(): LyraSnapshotInfo;
   
-  // Serialize to JSON
+  // Serialize to a plain JSON-compatible structure
   toJSON(): LyraBundleJSON<T>;
   
   // Load a bundle from serialized JSON
@@ -384,6 +389,8 @@ class LyraBundle<T extends Record<string, unknown>> {
   ): LyraBundle<TItem>;
 }
 ```
+
+`toJSON()` returns a plain, JSON-compatible structure; it does not include any methods or prototype data.
 
 ### Type Definitions
 
@@ -487,6 +494,8 @@ const config: CreateBundleConfig<Ticket> = {
 - **Negative offset:** Clamped to `0`
 - **Negative limit:** Treated as `0` (no items returned, but `total` still reflects all matches)
 - **Overly large limit:** Effectively clamped to `candidateIndices.length` via `.slice()`
+
+This behavior is intentional: a typo in a facet or range field name will fail closed (no matches) rather than silently ignore the filter.
 
 All of these behaviors are deterministic and documented. Bad types in query parameters are out of scope for v1; callers are expected to pass structurally correct types.
 
