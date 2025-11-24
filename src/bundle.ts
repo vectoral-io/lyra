@@ -12,10 +12,12 @@ import type {
   RangeFilter,
 } from './types';
 
+
 // Types
 // ==============================
 
 type BundleItem = Record<string, unknown>;
+
 
 // Utils
 // ==============================
@@ -68,6 +70,7 @@ function mergeUnionSorted(arrays: number[][]): number[] {
   return result;
 }
 
+
 /**
  * Intersect two sorted arrays using two-pointer algorithm.
  * Writes result to target array (clears and reuses it).
@@ -101,9 +104,15 @@ function intersectSorted(
   }
 }
 
+
 /**
  * Filter indices array by range conditions, checking items at those indices.
  * Returns a new array of indices that pass all range filters.
+ * 
+ * Range semantics:
+ * - Range `min` and `max` values must be numbers
+ * - For date fields, pass epoch milliseconds (e.g., `Date.parse(isoString)`)
+ * - Items are included if their value is >= `min` (if provided) and <= `max` (if provided)
  */
 function filterIndicesByRange<T extends BundleItem>(
   indices: number[],
@@ -149,6 +158,7 @@ function filterIndicesByRange<T extends BundleItem>(
 
   return result;
 }
+
 
 // Builder Functions
 // ==============================
@@ -204,6 +214,7 @@ export function buildManifest(config: CreateBundleConfig): LyraManifest {
     },
   };
 }
+
 
 /**
  * Build facet index from items and manifest.
@@ -261,6 +272,7 @@ export function buildFacetIndex<T extends BundleItem>(
 
   return facetIndex;
 }
+
 
 /**
  * Create a bundle from items and configuration.
@@ -384,8 +396,8 @@ export class LyraBundle<T extends BundleItem> {
       facetEntries.sort((entryA, entryB) => entryA.size - entryB.size);
 
       // Intersect facets in order of increasing size
-      for (let facetIndex = 0; facetIndex < facetEntries.length; facetIndex++) {
-        const facetEntry = facetEntries[facetIndex];
+      for (let i = 0; i < facetEntries.length; i++) {
+        const facetEntry = facetEntries[i];
 
         if (candidateIndices === null) {
           // Seed with smallest facet's postings
@@ -395,7 +407,7 @@ export class LyraBundle<T extends BundleItem> {
           // Intersect with next facet using scratch arrays
           const source = candidateIndices;
           const SCRATCH_ARRAY_COUNT = 2;
-          const target = facetIndex % SCRATCH_ARRAY_COUNT === 0 ? this.scratchA : this.scratchB;
+          const target = i % SCRATCH_ARRAY_COUNT === 0 ? this.scratchA : this.scratchB;
 
           intersectSorted(source, facetEntry.postings, target);
           candidateIndices = target;
@@ -416,6 +428,7 @@ export class LyraBundle<T extends BundleItem> {
     }
 
     // Apply range filters on indices (optimized)
+    // Note: Range min/max must be numbers; for dates, use epoch milliseconds (e.g., Date.parse(isoString))
     if (hasRangeFilters) {
       candidateIndices = filterIndicesByRange(candidateIndices, this.items, ranges!);
     }
@@ -555,17 +568,15 @@ export class LyraBundle<T extends BundleItem> {
     }
 
     // Ensure all facet fields have entries in facetIndex (empty is OK)
+    // Lightweight guard: initialize empty object if facetIndex is missing
+    const finalFacetIndex: FacetPostingLists = facetIndex ?? {};
+    
     for (const facetField of manifest.capabilities.facets) {
-      if (!(facetField in (facetIndex ?? {}))) {
-        // Initialize empty if missing
-        if (!facetIndex) {
-          throw new Error('Invalid bundle: facetIndex is missing');
-        }
-        facetIndex[facetField] = {};
+      if (!(facetField in finalFacetIndex)) {
+        finalFacetIndex[facetField] = {};
       }
     }
 
-    const finalFacetIndex: FacetPostingLists = facetIndex ?? {};
     return new LyraBundle<TItem>(items, manifest, finalFacetIndex);
   }
 }

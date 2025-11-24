@@ -4,29 +4,13 @@ import {
   buildManifest,
   createBundle,
   type CreateBundleConfig,
-  type LyraManifest,
 } from '../src';
 import { generateTicketArray, type Ticket } from './tickets.fixture';
+import { DATASET_SIZE, testConfig } from './test-config';
 
 
-const DATASET_SIZE = 10000;
-
-
-describe('LyraBundle', () => {
-
-  const config: CreateBundleConfig = {
-    datasetId: 'tickets-2025-11-22',
-    fields: {
-      id: { kind: 'id', type: 'string' },
-      customerId: { kind: 'facet', type: 'string' },
-      priority: { kind: 'facet', type: 'string' },
-      status: { kind: 'facet', type: 'string' },
-      productArea: { kind: 'facet', type: 'string' },
-      region: { kind: 'facet', type: 'string' },
-      createdAt: { kind: 'range', type: 'date' },
-      slaHours: { kind: 'range', type: 'number' },
-    },
-  };
+describe('LyraBundle - Core Functionality', () => {
+  const config = testConfig;
 
 
   it('builds a bundle and runs a basic facet query', async () => {

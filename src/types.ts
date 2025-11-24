@@ -3,6 +3,14 @@
 
 export type FacetFilter = Record<string, unknown | unknown[]>;
 
+/**
+ * Range filter for numeric or date fields.
+ * 
+ * Range semantics:
+ * - `min` and `max` must be numbers
+ * - For date fields, pass epoch milliseconds (e.g., `Date.parse(isoString)`)
+ * - Items are included if their value is >= `min` (if provided) and <= `max` (if provided)
+ */
 export type RangeFilter = Record<string, { min?: number; max?: number }>;
 
 /**
