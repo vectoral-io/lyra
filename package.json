@@ -18,7 +18,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/vectoral-io/lyra.git"
+    "url": "git+https://github.com/vectoral-io/lyra.git"
   },
   "bugs": {
     "url": "https://github.com/vectoral-io/lyra/issues"
@@ -33,6 +33,9 @@
     }
   },
   "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "dist"
   ],
@@ -85,6 +88,7 @@
     ]
   },
   "release": {
+    "repositoryUrl": "https://github.com/vectoral-io/lyra.git",
     "branches": [
       "main"
     ],
