@@ -1,21 +1,21 @@
 import type {
   CreateBundleConfig,
+  FacetCounts,
+  FacetPostingLists,
+  FieldKind,
+  FieldType,
+  LyraBundleJSON,
   LyraManifest,
   LyraQuery,
   LyraResult,
   LyraSnapshotInfo,
+  RangeFilter,
 } from './types';
 
 // Types
 // ==============================
 
 type BundleItem = Record<string, unknown>;
-
-type FacetPostingLists = {
-  [field: string]: {
-    [valueKey: string]: number[]; // item indices
-  };
-};
 
 // Utils
 // ==============================
@@ -101,6 +101,177 @@ function intersectSorted(
   }
 }
 
+/**
+ * Filter indices array by range conditions, checking items at those indices.
+ * Returns a new array of indices that pass all range filters.
+ */
+function filterIndicesByRange<T extends BundleItem>(
+  indices: number[],
+  items: T[],
+  ranges: RangeFilter,
+): number[] {
+  const result: number[] = [];
+
+  for (const idx of indices) {
+    const item = items[idx];
+    let passes = true;
+
+    for (const [field, range] of Object.entries(ranges)) {
+      const rawValue = (item as Record<string, unknown>)[field];
+      if (rawValue == null) {
+        passes = false;
+        break;
+      }
+
+      const numericValue =
+        typeof rawValue === 'number'
+          ? rawValue
+          : Date.parse(String(rawValue)) || NaN;
+
+      if (Number.isNaN(numericValue)) {
+        passes = false;
+        break;
+      }
+      if (range.min != null && numericValue < range.min) {
+        passes = false;
+        break;
+      }
+      if (range.max != null && numericValue > range.max) {
+        passes = false;
+        break;
+      }
+    }
+
+    if (passes) {
+      result.push(idx);
+    }
+  }
+
+  return result;
+}
+
+// Builder Functions
+// ==============================
+
+/**
+ * Build a manifest from bundle configuration.
+ */
+export function buildManifest(config: CreateBundleConfig): LyraManifest {
+  const builtAt = new Date().toISOString();
+
+  const VALID_KINDS: FieldKind[] = ['id', 'facet', 'range', 'meta'];
+  const VALID_TYPES: FieldType[] = ['string', 'number', 'boolean', 'date'];
+
+  const fields = Object.entries(config.fields).map(([name, cfg]) => {
+    // Validate kind
+    if (!VALID_KINDS.includes(cfg.kind)) {
+      throw new Error(
+        `Invalid field kind "${cfg.kind}" for field "${name}". Must be one of: ${VALID_KINDS.join(', ')}`,
+      );
+    }
+
+    // Validate type
+    if (!VALID_TYPES.includes(cfg.type)) {
+      throw new Error(
+        `Invalid field type "${cfg.type}" for field "${name}". Must be one of: ${VALID_TYPES.join(', ')}`,
+      );
+    }
+
+    return {
+      name,
+      kind: cfg.kind,
+      type: cfg.type,
+      ops: (
+        cfg.kind === 'range'
+          ? ['between', 'gte', 'lte']
+          : ['eq', 'in']
+      ) as Array<'eq' | 'in' | 'between' | 'gte' | 'lte'>,
+    };
+  });
+
+  return {
+    version: '1.0.0',
+    datasetId: config.datasetId,
+    builtAt,
+    fields,
+    capabilities: {
+      facets: fields
+        .filter((field) => field.kind === 'facet')
+        .map((field) => field.name),
+      ranges: fields
+        .filter((field) => field.kind === 'range')
+        .map((field) => field.name),
+    },
+  };
+}
+
+/**
+ * Build facet index from items and manifest.
+ */
+export function buildFacetIndex<T extends BundleItem>(
+  items: T[],
+  manifest: LyraManifest,
+): FacetPostingLists {
+  const facetFields = manifest.capabilities.facets;
+  const facetIndex: FacetPostingLists = {};
+
+  for (const field of facetFields) {
+    facetIndex[field] = {};
+  }
+
+  items.forEach((item, idx) => {
+    for (const field of facetFields) {
+      const raw = (item as Record<string, unknown>)[field];
+      if (raw === undefined || raw === null) continue;
+
+      // For now treat non-array values as singletons
+      const values = Array.isArray(raw) ? raw : [raw];
+
+      for (const value of values) {
+        const valueKey = String(value);
+        const postingsForField = facetIndex[field];
+        let postings = postingsForField[valueKey];
+        if (!postings) {
+          postings = [];
+          postingsForField[valueKey] = postings;
+        }
+        postings.push(idx);
+      }
+    }
+  });
+
+  // Sort and deduplicate posting lists at build time
+  for (const field of facetFields) {
+    const postingsForField = facetIndex[field];
+    for (const valueKey in postingsForField) {
+      const postings = postingsForField[valueKey];
+      // Sort ascending
+      postings.sort((valueA, valueB) => valueA - valueB);
+      // Deduplicate in-place (remove consecutive duplicates after sorting)
+      let writeIndex = 0;
+      for (let readIndex = 0; readIndex < postings.length; readIndex++) {
+        if (readIndex === 0 || postings[readIndex] !== postings[readIndex - 1]) {
+          postings[writeIndex] = postings[readIndex];
+          writeIndex++;
+        }
+      }
+      postings.length = writeIndex;
+    }
+  }
+
+  return facetIndex;
+}
+
+/**
+ * Create a bundle from items and configuration.
+ */
+export async function createBundle<T extends BundleItem>(
+  items: T[],
+  config: CreateBundleConfig,
+): Promise<LyraBundle<T>> {
+  return LyraBundle.create(items, config);
+}
+
 // Components
 // ==============================
 
@@ -129,82 +300,30 @@ export class LyraBundle<T extends BundleItem> {
     items: TItem[],
     config: CreateBundleConfig,
   ): Promise<LyraBundle<TItem>> {
-    const builtAt = new Date().toISOString();
+    // Soft validation: check that field names exist in at least one item
+    if (items.length > 0) {
+      const sampleItem = items[0] as Record<string, unknown>;
+      const itemKeys = new Set(Object.keys(sampleItem));
 
-    const fields = Object.entries(config.fields).map(([name, cfg]) => ({
-      name,
-      kind: cfg.kind,
-      type: cfg.type,
-      ops: (
-        cfg.kind === 'range'
-          ? ['between', 'gte', 'lte']
-          : ['eq', 'in']
-      ) as Array<'eq' | 'in' | 'between' | 'gte' | 'lte'>,
-    }));
-
-    const manifest: LyraManifest = {
-      version: '1.0.0',
-      datasetId: config.datasetId,
-      builtAt,
-      fields,
-      capabilities: {
-        facets: fields
-          .filter((field) => field.kind === 'facet')
-          .map((field) => field.name),
-        ranges: fields
-          .filter((field) => field.kind === 'range')
-          .map((field) => field.name),
-      },
-    };
-
-    // Build facet index
-    const facetFields = manifest.capabilities.facets;
-    const facetIndex: FacetPostingLists = {};
-
-    for (const field of facetFields) {
-      facetIndex[field] = {};
-    }
-
-    items.forEach((item, idx) => {
-      for (const field of facetFields) {
-        const raw = (item as Record<string, unknown>)[field];
-        if (raw === undefined || raw === null) continue;
-
-        // For now treat non-array values as singletons
-        const values = Array.isArray(raw) ? raw : [raw];
-
-        for (const value of values) {
-          const valueKey = String(value);
-          const postingsForField = facetIndex[field];
-          let postings = postingsForField[valueKey];
-          if (!postings) {
-            postings = [];
-            postingsForField[valueKey] = postings;
-          }
-          postings.push(idx);
-        }
-      }
-    });
-
-    // Sort and deduplicate posting lists at build time
-    for (const field of facetFields) {
-      const postingsForField = facetIndex[field];
-      for (const valueKey in postingsForField) {
-        const postings = postingsForField[valueKey];
-        // Sort ascending
-        postings.sort((valueA, valueB) => valueA - valueB);
-        // Deduplicate in-place (remove consecutive duplicates after sorting)
-        let writeIndex = 0;
-        for (let readIndex = 0; readIndex < postings.length; readIndex++) {
-          if (readIndex === 0 || postings[readIndex] !== postings[readIndex - 1]) {
-            postings[writeIndex] = postings[readIndex];
-            writeIndex++;
+      for (const fieldName of Object.keys(config.fields)) {
+        if (!itemKeys.has(fieldName)) {
+          // Check if any item has this field
+          const hasField = items.some(
+            (item) => (item as Record<string, unknown>)[fieldName] !== undefined,
+          );
+          if (!hasField) {
+            // Soft warning - field doesn't exist in any item
+            // eslint-disable-next-line no-console
+            console.warn(
+              `Field "${fieldName}" is configured but does not exist in any items. It will be ignored.`,
+            );
           }
         }
-        postings.length = writeIndex;
       }
     }
 
+    const manifest = buildManifest(config);
+    const facetIndex = buildFacetIndex(items, manifest);
     return new LyraBundle(items, manifest, facetIndex);
   }
 
@@ -212,8 +331,9 @@ export class LyraBundle<T extends BundleItem> {
    * Execute a facet/range query against the bundle.
    */
   query(query: LyraQuery = {}): LyraResult<T> {
-    const { facets, ranges, limit, offset } = query;
+    const { facets, ranges, limit, offset, includeFacetCounts = false } = query;
     const hasFacetFilters = facets && Object.keys(facets).length > 0;
+    const hasRangeFilters = ranges && Object.keys(ranges).length > 0;
 
     let candidateIndices: number[] | null = null;
 
@@ -286,40 +406,58 @@ export class LyraBundle<T extends BundleItem> {
       }
     }
 
-    // If no facet filters, start from all items.
-    let items: T[];
+    // Initialize candidateIndices if no facet filters
     if (candidateIndices === null) {
-      items = this.items;
-    }
-    else {
-      items = candidateIndices.map((idx) => this.items[idx]);
-    }
-
-    // Apply range filters naively for now.
-    if (ranges && Object.keys(ranges).length > 0) {
-      items = items.filter((item) => {
-        return Object.entries(ranges).every(([field, range]) => {
-          const rawValue = (item as Record<string, unknown>)[field];
-          if (rawValue == null) return false;
-
-          const numericValue =
-            typeof rawValue === 'number'
-              ? rawValue
-              : Date.parse(String(rawValue)) || NaN;
-
-          if (Number.isNaN(numericValue)) return false;
-          if (range.min != null && numericValue < range.min) return false;
-          if (range.max != null && numericValue > range.max) return false;
-
-          return true;
-        });
-      });
+      // Create array of all indices
+      candidateIndices = new Array(this.items.length);
+      for (let i = 0; i < this.items.length; i++) {
+        candidateIndices[i] = i;
+      }
     }
 
-    const total = items.length;
+    // Apply range filters on indices (optimized)
+    if (hasRangeFilters) {
+      candidateIndices = filterIndicesByRange(candidateIndices, this.items, ranges!);
+    }
+
+    const total = candidateIndices.length;
+
+    // Compute facet counts if requested (iterate over indices for efficiency)
+    let facetCounts: FacetCounts | undefined;
+    if (includeFacetCounts) {
+      facetCounts = {};
+      const facetFields = this.manifest.capabilities.facets;
+
+      for (const field of facetFields) {
+        facetCounts[field] = {};
+      }
+
+      // Iterate through indices that passed both facet and range filters
+      for (const idx of candidateIndices) {
+        const item = this.items[idx];
+        for (const field of facetFields) {
+          const raw = (item as Record<string, unknown>)[field];
+          if (raw === undefined || raw === null) continue;
+
+          // Handle array values (count each occurrence)
+          const values = Array.isArray(raw) ? raw : [raw];
+
+          for (const value of values) {
+            const valueKey = String(value);
+            const countsForField = facetCounts[field];
+            countsForField[valueKey] = (countsForField[valueKey] ?? 0) + 1;
+          }
+        }
+      }
+    }
+
+    // Apply pagination on indices
     const start = offset ?? 0;
     const end = limit != null ? start + limit : undefined;
-    const slice = items.slice(start, end);
+    const paginatedIndices = candidateIndices.slice(start, end);
+
+    // Convert indices to items only for the final paginated slice
+    const items = paginatedIndices.map((idx) => this.items[idx]);
 
     const snapshot: LyraSnapshotInfo = {
       datasetId: this.manifest.datasetId,
@@ -328,12 +466,13 @@ export class LyraBundle<T extends BundleItem> {
     };
 
     return {
-      items: slice,
+      items,
       total,
       applied: {
         facets,
         ranges,
       },
+      facets: facetCounts,
       snapshot,
     };
   }
@@ -359,7 +498,7 @@ export class LyraBundle<T extends BundleItem> {
   /**
    * Serialize the bundle to a plain JSON-compatible structure.
    */
-  toJSON(): unknown {
+  toJSON(): LyraBundleJSON<T> {
     return {
       manifest: this.manifest,
       items: this.items,
@@ -370,16 +509,63 @@ export class LyraBundle<T extends BundleItem> {
   /**
    * Load a bundle from a previously serialized JSON value.
    */
-  static load<TItem extends BundleItem>(raw: {
-    manifest?: LyraManifest;
-    items?: TItem[];
-    facetIndex?: FacetPostingLists;
-  }): LyraBundle<TItem> {
+  static load<TItem extends BundleItem>(raw: LyraBundleJSON<TItem>): LyraBundle<TItem> {
     if (!raw || !raw.manifest || !raw.items) {
-      throw new Error('Invalid bundle JSON');
+      throw new Error('Invalid bundle JSON: missing manifest or items');
     }
 
-    const facetIndex: FacetPostingLists = raw.facetIndex ?? {};
-    return new LyraBundle<TItem>(raw.items, raw.manifest, facetIndex);
+    const { manifest, items, facetIndex } = raw;
+
+    // Validate version
+    if (!manifest.version || !manifest.version.startsWith('1.')) {
+      throw new Error(
+        `Invalid bundle version: "${manifest.version}". Expected version starting with "1."`,
+      );
+    }
+
+    // Validate capabilities reference existing fields
+    const fieldNames = new Set(manifest.fields.map((field) => field.name));
+
+    for (const facetField of manifest.capabilities.facets) {
+      if (!fieldNames.has(facetField)) {
+        throw new Error(
+          `Invalid bundle: capability references non-existent facet field "${facetField}"`,
+        );
+      }
+    }
+
+    for (const rangeField of manifest.capabilities.ranges) {
+      if (!fieldNames.has(rangeField)) {
+        throw new Error(
+          `Invalid bundle: capability references non-existent range field "${rangeField}"`,
+        );
+      }
+    }
+
+    // Validate facetIndex keys match facet field names
+    const facetIndexKeys = new Set(Object.keys(facetIndex ?? {}));
+    const expectedFacetFields = new Set(manifest.capabilities.facets);
+
+    for (const indexKey of facetIndexKeys) {
+      if (!expectedFacetFields.has(indexKey)) {
+        throw new Error(
+          `Invalid bundle: facetIndex contains field "${indexKey}" that is not in capabilities.facets`,
+        );
+      }
+    }
+
+    // Ensure all facet fields have entries in facetIndex (empty is OK)
+    for (const facetField of manifest.capabilities.facets) {
+      if (!(facetField in (facetIndex ?? {}))) {
+        // Initialize empty if missing
+        if (!facetIndex) {
+          throw new Error('Invalid bundle: facetIndex is missing');
+        }
+        facetIndex[facetField] = {};
+      }
+    }
+
+    const finalFacetIndex: FacetPostingLists = facetIndex ?? {};
+    return new LyraBundle<TItem>(items, manifest, finalFacetIndex);
   }
 }

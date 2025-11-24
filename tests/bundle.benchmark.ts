@@ -19,34 +19,10 @@ const config: CreateBundleConfig = {
   },
 };
 
-// Naive filter implementation for comparison
-// ==============================
-
-function naiveFilterQuery<T extends Ticket>(
-  items: T[],
-  facets?: Record<string, unknown>,
-): T[] {
-  if (!facets || Object.keys(facets).length === 0) {
-    return items;
-  }
-
-  return items.filter((item) => {
-    return Object.entries(facets).every(([field, value]) => {
-      const itemValue = item[field as keyof Ticket];
-
-      if (Array.isArray(value)) {
-        return value.includes(itemValue);
-      }
-
-      return itemValue === value;
-    });
-  });
-}
-
 // Benchmark suites
 // ==============================
 
-describe('Query Performance: Naive Filter vs Indexed Query', async () => {
+describe('Query Performance Benchmarks', async () => {
   const datasetSizes = [1000, 10000, 100000];
   const bundles: Map<number, LyraBundle<Ticket>> = new Map();
 
@@ -61,72 +37,207 @@ describe('Query Performance: Naive Filter vs Indexed Query', async () => {
     const bundle = bundles.get(size)!;
 
     describe(`${size.toLocaleString()} items`, () => {
-      // Single facet query
-      bench(`naive filter - single facet`, () => {
-        const sampleCustomer = tickets[0].customerId;
-        naiveFilterQuery(tickets, { customerId: sampleCustomer });
-      });
+      // Single facet queries
+      describe('Single facet queries', () => {
+        bench('query - single facet (customerId)', () => {
+          const sampleCustomer = tickets[0].customerId;
+          bundle.query({ facets: { customerId: sampleCustomer } });
+        });
 
-      bench(`indexed query - single facet`, () => {
-        const sampleCustomer = tickets[0].customerId;
-        bundle.query({ facets: { customerId: sampleCustomer } });
-      });
+        bench('query - single facet (priority)', () => {
+          const samplePriority = tickets[0].priority;
+          bundle.query({ facets: { priority: samplePriority } });
+        });
 
-      // Multi-facet query
-      bench(`naive filter - multi-facet (3 facets)`, () => {
-        const sampleCustomer = tickets[0].customerId;
-        const samplePriority = tickets[0].priority;
-        const sampleStatus = tickets[0].status;
-        naiveFilterQuery(tickets, {
-          customerId: sampleCustomer,
-          priority: samplePriority,
-          status: sampleStatus,
+        bench('query - single facet (status)', () => {
+          const sampleStatus = tickets[0].status;
+          bundle.query({ facets: { status: sampleStatus } });
         });
       });
 
-      bench(`indexed query - multi-facet (3 facets)`, () => {
-        const sampleCustomer = tickets[0].customerId;
-        const samplePriority = tickets[0].priority;
-        const sampleStatus = tickets[0].status;
-        bundle.query({
-          facets: {
-            customerId: sampleCustomer,
-            priority: samplePriority,
-            status: sampleStatus,
-          },
+      // Multi-facet queries
+      describe('Multi-facet queries', () => {
+        bench('query - multi-facet (2 facets)', () => {
+          const sampleCustomer = tickets[0].customerId;
+          const samplePriority = tickets[0].priority;
+          bundle.query({
+            facets: {
+              customerId: sampleCustomer,
+              priority: samplePriority,
+            },
+          });
+        });
+
+        bench('query - multi-facet (3 facets)', () => {
+          const sampleCustomer = tickets[0].customerId;
+          const samplePriority = tickets[0].priority;
+          const sampleStatus = tickets[0].status;
+          bundle.query({
+            facets: {
+              customerId: sampleCustomer,
+              priority: samplePriority,
+              status: sampleStatus,
+            },
+          });
+        });
+
+        bench('query - multi-facet (5 facets)', () => {
+          const sampleCustomer = tickets[0].customerId;
+          const samplePriority = tickets[0].priority;
+          const sampleStatus = tickets[0].status;
+          const sampleProductArea = tickets[0].productArea;
+          const sampleRegion = tickets[0].region;
+          bundle.query({
+            facets: {
+              customerId: sampleCustomer,
+              priority: samplePriority,
+              status: sampleStatus,
+              productArea: sampleProductArea,
+              region: sampleRegion,
+            },
+          });
         });
       });
 
-      // Complex multi-facet query
-      bench(`naive filter - complex multi-facet (5 facets)`, () => {
-        const sampleCustomer = tickets[0].customerId;
-        const samplePriority = tickets[0].priority;
-        const sampleStatus = tickets[0].status;
-        const sampleProductArea = tickets[0].productArea;
-        const sampleRegion = tickets[0].region;
-        naiveFilterQuery(tickets, {
-          customerId: sampleCustomer,
-          priority: samplePriority,
-          status: sampleStatus,
-          productArea: sampleProductArea,
-          region: sampleRegion,
+      // Range queries
+      describe('Range queries', () => {
+        bench('query - single range filter (slaHours)', () => {
+          const minSlaHours = 12;
+          const maxSlaHours = 48;
+          bundle.query({
+            ranges: {
+              slaHours: { min: minSlaHours, max: maxSlaHours },
+            },
+          });
+        });
+
+        bench('query - single range filter (createdAt)', () => {
+          const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+          const now = Date.now();
+          bundle.query({
+            ranges: {
+              createdAt: { min: thirtyDaysAgo, max: now },
+            },
+          });
+        });
+
+        bench('query - multiple range filters', () => {
+          const minSlaHours = 12;
+          const maxSlaHours = 48;
+          const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+          const now = Date.now();
+          bundle.query({
+            ranges: {
+              slaHours: { min: minSlaHours, max: maxSlaHours },
+              createdAt: { min: thirtyDaysAgo, max: now },
+            },
+          });
         });
       });
 
-      bench(`indexed query - complex multi-facet (5 facets)`, () => {
-        const sampleCustomer = tickets[0].customerId;
-        const samplePriority = tickets[0].priority;
-        const sampleStatus = tickets[0].status;
-        const sampleProductArea = tickets[0].productArea;
-        const sampleRegion = tickets[0].region;
-        bundle.query({
-          facets: {
-            customerId: sampleCustomer,
-            priority: samplePriority,
-            status: sampleStatus,
-            productArea: sampleProductArea,
-            region: sampleRegion,
-          },
+      // Combined facet and range queries
+      describe('Combined facet and range queries', () => {
+        bench('query - facets + ranges', () => {
+          const sampleCustomer = tickets[0].customerId;
+          const samplePriority = tickets[0].priority;
+          const minSlaHours = 12;
+          const maxSlaHours = 48;
+          bundle.query({
+            facets: {
+              customerId: sampleCustomer,
+              priority: samplePriority,
+            },
+            ranges: {
+              slaHours: { min: minSlaHours, max: maxSlaHours },
+            },
+          });
+        });
+      });
+
+      // Queries with facet counts
+      describe('Queries with facet counts', () => {
+        bench('query - single facet with counts', () => {
+          const sampleCustomer = tickets[0].customerId;
+          bundle.query({
+            facets: { customerId: sampleCustomer },
+            includeFacetCounts: true,
+          });
+        });
+
+        bench('query - multi-facet with counts', () => {
+          const sampleCustomer = tickets[0].customerId;
+          const samplePriority = tickets[0].priority;
+          const sampleStatus = tickets[0].status;
+          bundle.query({
+            facets: {
+              customerId: sampleCustomer,
+              priority: samplePriority,
+              status: sampleStatus,
+            },
+            includeFacetCounts: true,
+          });
+        });
+      });
+
+      // Queries with pagination
+      describe('Queries with pagination', () => {
+        bench('query - with limit', () => {
+          const sampleCustomer = tickets[0].customerId;
+          bundle.query({
+            facets: { customerId: sampleCustomer },
+            limit: 10,
+          });
+        });
+
+        bench('query - with offset and limit', () => {
+          const sampleCustomer = tickets[0].customerId;
+          bundle.query({
+            facets: { customerId: sampleCustomer },
+            offset: 50,
+            limit: 20,
+          });
+        });
+      });
+
+      // Complex queries
+      describe('Complex queries', () => {
+        bench('query - multi-facet + ranges + pagination', () => {
+          const sampleCustomer = tickets[0].customerId;
+          const samplePriority = tickets[0].priority;
+          const minSlaHours = 12;
+          const maxSlaHours = 48;
+          bundle.query({
+            facets: {
+              customerId: sampleCustomer,
+              priority: samplePriority,
+            },
+            ranges: {
+              slaHours: { min: minSlaHours, max: maxSlaHours },
+            },
+            limit: 25,
+            offset: 10,
+          });
+        });
+
+        bench('query - full feature set (facets + ranges + counts + pagination)', () => {
+          const sampleCustomer = tickets[0].customerId;
+          const samplePriority = tickets[0].priority;
+          const sampleStatus = tickets[0].status;
+          const minSlaHours = 12;
+          const maxSlaHours = 48;
+          bundle.query({
+            facets: {
+              customerId: sampleCustomer,
+              priority: samplePriority,
+              status: sampleStatus,
+            },
+            ranges: {
+              slaHours: { min: minSlaHours, max: maxSlaHours },
+            },
+            includeFacetCounts: true,
+            limit: 50,
+            offset: 0,
+          });
         });
       });
     });

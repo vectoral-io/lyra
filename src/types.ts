@@ -13,6 +13,7 @@ export interface LyraQuery {
   ranges?: RangeFilter;
   limit?: number;
   offset?: number;
+  includeFacetCounts?: boolean;
 }
 
 /**
@@ -88,3 +89,21 @@ export interface CreateBundleConfig {
   datasetId: string;
   fields: Record<string, FieldConfig>;
 }
+
+/**
+ * Internal type for facet posting lists (not exported, but needed for bundle JSON).
+ */
+export type FacetPostingLists = {
+  [field: string]: {
+    [valueKey: string]: number[]; // item indices
+  };
+};
+
+/**
+ * Serialized bundle format (v1).
+ */
+export type LyraBundleJSON<T = unknown> = {
+  manifest: LyraManifest;
+  items: T[];
+  facetIndex: FacetPostingLists;
+};
