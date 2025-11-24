@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   LyraBundle,
-  buildManifest,
   createBundle,
   type CreateBundleConfig,
 } from '../src';
@@ -171,17 +170,6 @@ describe('LyraBundle - Core Functionality', () => {
     expect(statusField).toBeDefined();
     expect(statusField?.kind).toBe('facet');
     expect(statusField?.ops).toEqual(['eq', 'in']);
-  });
-
-
-  it('buildManifest produces valid manifest', () => {
-    const manifest = buildManifest(config);
-
-    expect(manifest.version).toBe('1.0.0');
-    expect(manifest.datasetId).toBe('tickets-2025-11-22');
-    expect(manifest.fields.length).toBeGreaterThan(0);
-    expect(manifest.capabilities.facets.length).toBeGreaterThan(0);
-    expect(manifest.capabilities.ranges.length).toBeGreaterThan(0);
   });
 
 
@@ -415,5 +403,69 @@ describe('LyraBundle - Core Functionality', () => {
     });
 
     expect(result.facets).toBeUndefined();
+  });
+
+
+  it('unknown facet field returns empty result', async () => {
+    const tickets = generateTicketArray(DATASET_SIZE);
+    const bundle = await LyraBundle.create<Ticket>(tickets, config);
+
+    const result = bundle.query({
+      facets: {
+        nonexistentField: 'value',
+      },
+    });
+
+    expect(result.total).toBe(0);
+    expect(result.items.length).toBe(0);
+  });
+
+
+  it('unknown range field returns empty result', async () => {
+    const tickets = generateTicketArray(DATASET_SIZE);
+    const bundle = await LyraBundle.create<Ticket>(tickets, config);
+
+    const result = bundle.query({
+      ranges: {
+        nonexistentField: { min: 0, max: 100 },
+      },
+    });
+
+    expect(result.total).toBe(0);
+    expect(result.items.length).toBe(0);
+  });
+
+
+  it('negative offset is clamped to 0', async () => {
+    const tickets = generateTicketArray(DATASET_SIZE);
+    const bundle = await LyraBundle.create<Ticket>(tickets, config);
+
+    const resultNegative = bundle.query({
+      offset: -10,
+      limit: 5,
+    });
+
+    const resultZero = bundle.query({
+      offset: 0,
+      limit: 5,
+    });
+
+    // Negative offset should behave the same as offset 0
+    expect(resultNegative.total).toBe(resultZero.total);
+    expect(resultNegative.items.length).toBe(resultZero.items.length);
+    expect(resultNegative.items).toEqual(resultZero.items);
+  });
+
+
+  it('negative limit returns no results', async () => {
+    const tickets = generateTicketArray(DATASET_SIZE);
+    const bundle = await LyraBundle.create<Ticket>(tickets, config);
+
+    const result = bundle.query({
+      limit: -5,
+    });
+
+    expect(result.total).toBeGreaterThan(0); // Total should still reflect all matches
+    expect(result.items.length).toBe(0); // But no items should be returned
   });
 });

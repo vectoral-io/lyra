@@ -176,14 +176,6 @@ You typically do this in a build step or backend process.
 ```ts
 import { createBundle } from 'lyra';
 
-type Ticket = {
-  id: string;
-  customer: string;
-  priority: 'low' | 'medium' | 'high';
-  status: 'open' | 'in_progress' | 'closed';
-  productArea: string;
-  createdAt: string; // ISO date
-};
 
 const tickets: Ticket[] = [
   {
@@ -205,7 +197,7 @@ const tickets: Ticket[] = [
   // ...
 ];
 
-const bundle = await createBundle<Ticket>(tickets, {
+const bundle = await createBundle(tickets, {
   datasetId: 'tickets-2025-11-22',
   fields: {
     id:          { kind: 'id',    type: 'string' },
@@ -227,12 +219,12 @@ const json = JSON.stringify(bundle.toJSON());
 In your app, server, or edge function:
 
 ```ts
-import { loadBundle, type LyraQuery, type LyraResult } from 'lyra';
+import { LyraBundle, type LyraQuery, type LyraResult } from 'lyra';
 
 // Load previously stored JSON (string or plain object)
 const stored = await fetch('/data/tickets-bundle.json').then((r) => r.json());
 
-const bundle = loadBundle<Ticket>(stored);
+const bundle = LyraBundle.load<Ticket>(stored);
 
 // Define a query: high-priority open tickets for Acme in analytics
 const query: LyraQuery = {
@@ -281,10 +273,10 @@ Lyra is designed to be wrapped as a tool.
 A minimal conceptual pattern:
 
 ```ts
-import { loadBundle, type LyraQuery, type LyraResult } from 'lyra';
+import { LyraBundle, type LyraQuery, type LyraResult } from 'lyra';
 
 // Somewhere in your agent setup:
-const ticketsBundle = loadBundle<Ticket>(storedBundle);
+const ticketsBundle = LyraBundle.load<Ticket>(storedBundle);
 
 async function lyraTicketsTool(args: LyraQuery): Promise<LyraResult<Ticket>> {
   // In real code you should validate args against the manifest
@@ -304,71 +296,172 @@ The agent can then:
 - Rely on `snapshot` to understand the recency and identity of the data.
 
 
-## API (v1 draft)
+## Public API
 
-Lyra’s v1 API is intentionally small.
+Lyra’s v1 API is intentionally small and stable.
 
-### `createBundle<T>(items, config)`
+### Core Functions
+
+#### `createBundle<T>(items, config)`
 
 Builds a bundle from an array of items.
 
 ```ts
-interface FieldConfig {
+declare function createBundle<T extends Record<string, unknown>>(
+  items: T[],
+  config: CreateBundleConfig<T>
+): Promise<LyraBundle<T>>;
+```
+
+#### `class LyraBundle<T>`
+
+Core runtime object for querying bundles.
+
+```ts
+class LyraBundle<T extends Record<string, unknown>> {
+  // Execute a query against the bundle
+  query(q: LyraQuery): LyraResult<T>;
+  
+  // Get the bundle manifest
+  describe(): LyraManifest;
+  
+  // Get snapshot metadata
+  snapshot(): LyraSnapshotInfo;
+  
+  // Serialize to JSON
+  toJSON(): LyraBundleJSON<T>;
+  
+  // Load a bundle from serialized JSON
+  static load<TItem extends Record<string, unknown>>(
+    raw: LyraBundleJSON<TItem>
+  ): LyraBundle<TItem>;
+}
+```
+
+### Type Definitions
+
+#### `CreateBundleConfig<TItem>`
+
+Bundle configuration for a given item type. The generic parameter ensures compile-time field name validation.
+
+```ts
+interface FieldDefinition {
   kind: 'id' | 'facet' | 'range' | 'meta';
   type: 'string' | 'number' | 'boolean' | 'date';
 }
 
-interface CreateBundleConfig {
+interface CreateBundleConfig<TItem extends Record<string, unknown>> {
   datasetId: string;
-  fields: Record<string, FieldConfig>;
-}
-
-declare function createBundle<T>(
-  items: T[],
-  config: CreateBundleConfig
-): Promise<LyraBundle<T>>;
-```
-
-### `loadBundle<T>(raw)`
-
-Loads a bundle from a previously serialized JSON representation.
-
-```ts
-declare function loadBundle<T>(raw: unknown): LyraBundle<T>;
-```
-
-### `class LyraBundle<T>`
-
-Core runtime object.
-
-```ts
-class LyraBundle<T> {
-  query(q: LyraQuery): LyraResult<T>;
-  describe(): LyraManifest;
-  snapshot(): LyraSnapshotInfo;
-  toJSON(): unknown; // for serialization
-}
-```
-
-Types:
-
-```ts
-type LyraManifest = {
-  version: string;
-  datasetId: string;
-  builtAt: string;
   fields: {
-    name: string;
-    kind: 'id' | 'facet' | 'range' | 'meta';
-    type: 'string' | 'number' | 'boolean' | 'date';
-    ops: Array<'eq' | 'in' | 'between' | 'gte' | 'lte'>;
-  }[];
-  capabilities: {
-    facets: string[];
-    ranges: string[];
+    [K in Extract<keyof TItem, string>]?: FieldDefinition;
   };
+}
+```
+
+Example with type safety:
+
+```ts
+type Ticket = { id: string; status: string };
+
+const config: CreateBundleConfig<Ticket> = {
+  datasetId: 'tickets',
+  fields: {
+    status: { kind: 'facet', type: 'string' },
+    // @ts-expect-error: Property 'stauts' does not exist on type 'Ticket'
+    stauts: { kind: 'facet', type: 'string' },
+  },
 };
 ```
+
+#### `LyraQuery`
+
+Query parameters for executing facet and range filters.
+
+```ts
+type FacetPrimitive = string | number | boolean;
+type FacetValue = FacetPrimitive | FacetPrimitive[];
+
+type RangeFilter = {
+  min?: number;
+  max?: number;
+};
+
+interface LyraQuery {
+  facets?: Record<string, FacetValue>;
+  ranges?: Record<string, RangeFilter>;
+  limit?: number;
+  offset?: number;
+  includeFacetCounts?: boolean;
+}
+```
+
+#### `LyraResult<T>`
+
+Structured result of executing a query.
+
+```ts
+interface LyraResult<Item = unknown> {
+  items: Item[];
+  total: number;
+  applied: {
+    facets?: LyraQuery['facets'];
+    ranges?: LyraQuery['ranges'];
+  };
+  facets?: FacetCounts;
+  snapshot: LyraSnapshotInfo;
+}
+```
+
+#### Other Types
+
+- `LyraManifest` - Bundle manifest describing fields and capabilities
+- `LyraSnapshotInfo` - Snapshot metadata (datasetId, builtAt, indexVersion)
+- `LyraBundleJSON<T>` - On-the-wire JSON structure for a bundle
+- `FieldKind` - `'id' | 'facet' | 'range' | 'meta'`
+- `FieldType` - `'string' | 'number' | 'boolean' | 'date'`
+- `FieldDefinition` - Field configuration object
+- `FacetCounts` - Aggregated facet counts for a result set
+
+## Error Behavior
+
+### `createBundle` / `LyraBundle.create`
+
+**Throws** synchronously/asynchronously with `Error` in these cases:
+
+- **Invalid field config:**
+  - `kind` not in `['id','facet','range','meta']`
+  - `type` not in `['string','number','boolean','date']`
+  - Error message: `Invalid field kind "foo" for field "status". Must be one of: id, facet, range, meta.`
+
+**Soft behavior:**
+
+- If a configured field does not exist on any item:
+  - Does not throw
+  - Emits a `console.warn` exactly once per field: `Field "statusBucket" is configured but does not exist in any items. It will be ignored.`
+
+### `LyraBundle.load`
+
+**Throws** for clearly invalid bundle structures:
+
+- Missing manifest or items: `Invalid bundle JSON: missing manifest or items`
+- Invalid manifest version: `Invalid bundle version: "2.0.0". Expected version starting with "1."`
+- Capabilities reference unknown fields: `Invalid bundle: capability references non-existent facet field "status"`
+- facetIndex contains keys not declared as facet capabilities: `Invalid bundle: facetIndex contains field "priority" that is not in capabilities.facets`
+
+**Does not throw** for:
+- Missing facet field entries in facetIndex (initializes to `{}` and continues)
+
+### `LyraBundle.query`
+
+**Query normalization and error handling:**
+
+- **Unknown facet field:** Treated as "no matches" (returns `total = 0`, `items = []`)
+- **Unknown range field:** Treated as "no matches" (returns `total = 0`, `items = []`)
+- **Negative offset:** Clamped to `0`
+- **Negative limit:** Treated as `0` (no items returned, but `total` still reflects all matches)
+- **Overly large limit:** Effectively clamped to `candidateIndices.length` via `.slice()`
+
+All of these behaviors are deterministic and documented. Bad types in query parameters are out of scope for v1; callers are expected to pass structurally correct types.
 
 
 ## Status and roadmap

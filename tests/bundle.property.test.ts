@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { LyraBundle, type LyraResult } from '../src';
+import { LyraBundle, type LyraResult, type CreateBundleConfig } from '../src';
 import {
   configWithItemsAndQueryArb,
   configWithItemsAndQueryNonEmptyArb,
@@ -18,7 +18,7 @@ type BundleItem = Record<string, unknown>;
 function naiveFacetMatch(
   item: BundleItem,
   facets: Record<string, unknown | unknown[]>,
-  config: CreateBundleConfig,
+  config: CreateBundleConfig<Record<string, unknown>>,
 ): boolean {
   for (const [field, value] of Object.entries(facets)) {
     const fieldConfig = config.fields[field];
@@ -60,7 +60,7 @@ function naiveFacetMatch(
 function naiveRangeMatch(
   item: BundleItem,
   ranges: Record<string, { min?: number; max?: number }>,
-  config: CreateBundleConfig,
+  config: CreateBundleConfig<Record<string, unknown>>,
 ): boolean {
   for (const [field, range] of Object.entries(ranges)) {
     const fieldConfig = config.fields[field];
@@ -105,7 +105,7 @@ function naiveRangeMatch(
 function naiveQuery(
   items: BundleItem[],
   query: LyraQuery,
-  config: CreateBundleConfig,
+  config: CreateBundleConfig<Record<string, unknown>>,
 ): BundleItem[] {
   let filtered = items;
 

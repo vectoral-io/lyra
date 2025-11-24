@@ -1,5 +1,19 @@
-// Setup
+// Core
 // ==============================
 
-export * from './types';
-export * from './bundle';
+export { createBundle, LyraBundle } from './bundle';
+
+// Types
+// ==============================
+
+export type {
+  CreateBundleConfig,
+  FieldKind,
+  FieldType,
+  FieldDefinition,
+  LyraManifest,
+  LyraQuery,
+  LyraResult,
+  LyraSnapshotInfo,
+  LyraBundleJSON,
+} from './types';

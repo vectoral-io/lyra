@@ -319,10 +319,10 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     const negativeOffsetResult = bundle.query({ offset: -5 });
     expect(negativeOffsetResult.items.length).toBeGreaterThan(0);
 
-    // Negative limit results in negative end index, which slice treats as "exclude last N"
-    // slice(0, -5) on array of 10 returns first 5 items
+    // Negative limit is normalized to 0 (no items returned)
     const negativeLimitResult = bundle.query({ limit: -5 });
-    expect(negativeLimitResult.items.length).toBe(5);
+    expect(negativeLimitResult.total).toBeGreaterThan(0); // Total should still reflect all matches
+    expect(negativeLimitResult.items.length).toBe(0); // But no items should be returned
     expect(negativeLimitResult.total).toBe(10);
   });
 

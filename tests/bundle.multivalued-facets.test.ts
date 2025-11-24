@@ -14,7 +14,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
       { ...generateTicketArray(1)[0], tags: ['tag1'] },
       { ...generateTicketArray(1)[0], tags: ['tag2', 'tag3'] },
     ];
-    const configWithTags: CreateBundleConfig = {
+    const configWithTags: CreateBundleConfig<Ticket> = {
       datasetId: 'test',
       fields: {
         id: { kind: 'id', type: 'string' },
@@ -36,7 +36,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
       { ...generateTicketArray(1)[0], tags: ['tag3', undefined as any] },
       { ...generateTicketArray(1)[0], tags: ['tag1'] },
     ];
-    const configWithTags: CreateBundleConfig = {
+    const configWithTags: CreateBundleConfig<Ticket> = {
       datasetId: 'test',
       fields: {
         id: { kind: 'id', type: 'string' },
@@ -56,7 +56,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
       { ...generateTicketArray(1)[0], tags: ['tag1', 'tag1', 'tag2'] },
       { ...generateTicketArray(1)[0], tags: ['tag1'] },
     ];
-    const configWithTags: CreateBundleConfig = {
+    const configWithTags: CreateBundleConfig<Ticket> = {
       datasetId: 'test',
       fields: {
         id: { kind: 'id', type: 'string' },
@@ -83,7 +83,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
       { ...generateTicketArray(1)[0], tags: ['string', 123, true] as any },
       { ...generateTicketArray(1)[0], tags: ['string'] },
     ];
-    const configWithTags: CreateBundleConfig = {
+    const configWithTags: CreateBundleConfig<Ticket> = {
       datasetId: 'test',
       fields: {
         id: { kind: 'id', type: 'string' },
@@ -110,7 +110,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
       { ...generateTicketArray(1)[0], tags: largeArray },
       { ...generateTicketArray(1)[0], tags: ['tag0'] },
     ];
-    const configWithTags: CreateBundleConfig = {
+    const configWithTags: CreateBundleConfig<Ticket> = {
       datasetId: 'test',
       fields: {
         id: { kind: 'id', type: 'string' },
@@ -133,7 +133,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
       { ...generateTicketArray(1)[0], tags: [['nested'] as any] as any },
       { ...generateTicketArray(1)[0], tags: ['normal'] },
     ];
-    const configWithTags: CreateBundleConfig = {
+    const configWithTags: CreateBundleConfig<Ticket> = {
       datasetId: 'test',
       fields: {
         id: { kind: 'id', type: 'string' },
@@ -153,7 +153,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
       { ...generateTicketArray(1)[0], tags: ['', 'tag1', ''] },
       { ...generateTicketArray(1)[0], tags: ['tag1'] },
     ];
-    const configWithTags: CreateBundleConfig = {
+    const configWithTags: CreateBundleConfig<Ticket> = {
       datasetId: 'test',
       fields: {
         id: { kind: 'id', type: 'string' },
@@ -224,7 +224,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
       { ...generateTicketArray(1)[0], tags: ['tag1', 'tag3'] },
       { ...generateTicketArray(1)[0], tags: ['tag2'] },
     ];
-    const configWithTags: CreateBundleConfig = {
+    const configWithTags: CreateBundleConfig<Ticket> = {
       datasetId: 'test',
       fields: {
         id: { kind: 'id', type: 'string' },

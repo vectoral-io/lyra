@@ -13,12 +13,6 @@ import type {
 } from './types';
 
 
-// Types
-// ==============================
-
-type BundleItem = Record<string, unknown>;
-
-
 // Utils
 // ==============================
 
@@ -114,10 +108,10 @@ function intersectSorted(
  * - For date fields, pass epoch milliseconds (e.g., `Date.parse(isoString)`)
  * - Items are included if their value is >= `min` (if provided) and <= `max` (if provided)
  */
-function filterIndicesByRange<T extends BundleItem>(
+function filterIndicesByRange<T extends Record<string, unknown>>(
   indices: number[],
   items: T[],
-  ranges: RangeFilter,
+  ranges: Record<string, RangeFilter>,
 ): number[] {
   const result: number[] = [];
 
@@ -165,39 +159,49 @@ function filterIndicesByRange<T extends BundleItem>(
 
 /**
  * Build a manifest from bundle configuration.
+ * @internal
  */
-export function buildManifest(config: CreateBundleConfig): LyraManifest {
+function buildManifest<TItem extends Record<string, unknown>>(
+  config: CreateBundleConfig<TItem>,
+): LyraManifest {
   const builtAt = new Date().toISOString();
 
   const VALID_KINDS: FieldKind[] = ['id', 'facet', 'range', 'meta'];
   const VALID_TYPES: FieldType[] = ['string', 'number', 'boolean', 'date'];
 
-  const fields = Object.entries(config.fields).map(([name, cfg]) => {
-    // Validate kind
-    if (!VALID_KINDS.includes(cfg.kind)) {
-      throw new Error(
-        `Invalid field kind "${cfg.kind}" for field "${name}". Must be one of: ${VALID_KINDS.join(', ')}`,
-      );
-    }
+  const fields = Object.entries(config.fields)
+    .filter(([, cfg]) => cfg != null) // Filter out undefined entries
+    .map(([name, cfg]) => {
+      // cfg is guaranteed to be defined after filter
+      if (!cfg) {
+        throw new Error(`Field "${name}" has undefined configuration`);
+      }
 
-    // Validate type
-    if (!VALID_TYPES.includes(cfg.type)) {
-      throw new Error(
-        `Invalid field type "${cfg.type}" for field "${name}". Must be one of: ${VALID_TYPES.join(', ')}`,
-      );
-    }
+      // Validate kind
+      if (!VALID_KINDS.includes(cfg.kind)) {
+        throw new Error(
+          `Invalid field kind "${cfg.kind}" for field "${name}". Must be one of: ${VALID_KINDS.join(', ')}`,
+        );
+      }
 
-    return {
-      name,
-      kind: cfg.kind,
-      type: cfg.type,
-      ops: (
-        cfg.kind === 'range'
-          ? ['between', 'gte', 'lte']
-          : ['eq', 'in']
-      ) as Array<'eq' | 'in' | 'between' | 'gte' | 'lte'>,
-    };
-  });
+      // Validate type
+      if (!VALID_TYPES.includes(cfg.type)) {
+        throw new Error(
+          `Invalid field type "${cfg.type}" for field "${name}". Must be one of: ${VALID_TYPES.join(', ')}`,
+        );
+      }
+
+      return {
+        name,
+        kind: cfg.kind,
+        type: cfg.type,
+        ops: (
+          cfg.kind === 'range'
+            ? ['between', 'gte', 'lte']
+            : ['eq', 'in']
+        ) as Array<'eq' | 'in' | 'between' | 'gte' | 'lte'>,
+      };
+    });
 
   return {
     version: '1.0.0',
@@ -218,8 +222,9 @@ export function buildManifest(config: CreateBundleConfig): LyraManifest {
 
 /**
  * Build facet index from items and manifest.
+ * @internal
  */
-export function buildFacetIndex<T extends BundleItem>(
+function buildFacetIndex<T extends Record<string, unknown>>(
   items: T[],
   manifest: LyraManifest,
 ): FacetPostingLists {
@@ -277,9 +282,9 @@ export function buildFacetIndex<T extends BundleItem>(
 /**
  * Create a bundle from items and configuration.
  */
-export async function createBundle<T extends BundleItem>(
+export async function createBundle<T extends Record<string, unknown>>(
   items: T[],
-  config: CreateBundleConfig,
+  config: CreateBundleConfig<T>,
 ): Promise<LyraBundle<T>> {
   return LyraBundle.create(items, config);
 }
@@ -290,7 +295,7 @@ export async function createBundle<T extends BundleItem>(
 /**
  * Immutable bundle of items plus a manifest that describes fields and capabilities.
  */
-export class LyraBundle<T extends BundleItem> {
+export class LyraBundle<T extends Record<string, unknown>> {
   private readonly items: T[];
   private readonly manifest: LyraManifest;
   private readonly facetIndex: FacetPostingLists;
@@ -308,9 +313,9 @@ export class LyraBundle<T extends BundleItem> {
   /**
    * Build a new bundle from raw items and bundle configuration.
    */
-  static async create<TItem extends BundleItem>(
+  static async create<TItem extends Record<string, unknown>>(
     items: TItem[],
-    config: CreateBundleConfig,
+    config: CreateBundleConfig<TItem>,
   ): Promise<LyraBundle<TItem>> {
     // Soft validation: check that field names exist in at least one item
     if (items.length > 0) {
@@ -341,11 +346,46 @@ export class LyraBundle<T extends BundleItem> {
 
   /**
    * Execute a facet/range query against the bundle.
+   *
+   * Query contract:
+   * - Unknown facet fields: treated as "no matches" (returns total = 0)
+   * - Unknown range fields: treated as "no matches" (returns total = 0)
+   * - Negative offset: clamped to 0
+   * - Negative limit: treated as 0 (no results)
    */
   query(query: LyraQuery = {}): LyraResult<T> {
     const { facets, ranges, limit, offset, includeFacetCounts = false } = query;
     const hasFacetFilters = facets && Object.keys(facets).length > 0;
     const hasRangeFilters = ranges && Object.keys(ranges).length > 0;
+
+    // Pre-check: if any requested range field is not in capabilities.ranges, return empty result
+    if (hasRangeFilters) {
+      const rangeFields = Object.keys(ranges!);
+      const validRangeFields = new Set(this.manifest.capabilities.ranges);
+      const hasInvalidRangeField = rangeFields.some((field) => !validRangeFields.has(field));
+      if (hasInvalidRangeField) {
+        // Unknown range field; return empty result
+        const snapshot: LyraSnapshotInfo = {
+          datasetId: this.manifest.datasetId,
+          builtAt: this.manifest.builtAt,
+          indexVersion: this.manifest.version,
+        };
+        return {
+          items: [],
+          total: 0,
+          applied: {
+            facets,
+            ranges,
+          },
+          facets: undefined,
+          snapshot,
+        };
+      }
+    }
+
+    // Normalize offset and limit
+    const normalizedOffset = offset != null && offset < 0 ? 0 : (offset ?? 0);
+    const normalizedLimit = limit != null && limit < 0 ? 0 : limit;
 
     let candidateIndices: number[] | null = null;
 
@@ -464,9 +504,9 @@ export class LyraBundle<T extends BundleItem> {
       }
     }
 
-    // Apply pagination on indices
-    const start = offset ?? 0;
-    const end = limit != null ? start + limit : undefined;
+    // Apply pagination on indices (using normalized values)
+    const start = normalizedOffset;
+    const end = normalizedLimit != null ? start + normalizedLimit : undefined;
     const paginatedIndices = candidateIndices.slice(start, end);
 
     // Convert indices to items only for the final paginated slice
@@ -522,7 +562,9 @@ export class LyraBundle<T extends BundleItem> {
   /**
    * Load a bundle from a previously serialized JSON value.
    */
-  static load<TItem extends BundleItem>(raw: LyraBundleJSON<TItem>): LyraBundle<TItem> {
+  static load<TItem extends Record<string, unknown>>(
+    raw: LyraBundleJSON<TItem>,
+  ): LyraBundle<TItem> {
     if (!raw || !raw.manifest || !raw.items) {
       throw new Error('Invalid bundle JSON: missing manifest or items');
     }

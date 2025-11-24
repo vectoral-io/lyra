@@ -1,7 +1,7 @@
 import * as fc from 'fast-check';
 import type {
   CreateBundleConfig,
-  FieldConfig,
+  FieldDefinition,
   FieldKind,
   FieldType,
   LyraQuery,
@@ -36,7 +36,7 @@ const fieldTypeArb: fc.Arbitrary<FieldType> = fc.constantFrom(
  * Generate a random field configuration.
  * Ensures valid combinations: range fields must be number or date.
  */
-const fieldConfigArb: fc.Arbitrary<FieldConfig> = fc.oneof(
+const fieldConfigArb: fc.Arbitrary<FieldDefinition> = fc.oneof(
   // Range fields can only be number or date
   fc.record({
     kind: fc.constant('range' as FieldKind),
@@ -53,7 +53,7 @@ const fieldConfigArb: fc.Arbitrary<FieldConfig> = fc.oneof(
  * Generate a random bundle configuration.
  * Ensures at least one id field and some facets/ranges.
  */
-export const bundleConfigArb: fc.Arbitrary<CreateBundleConfig> = fc
+export const bundleConfigArb: fc.Arbitrary<CreateBundleConfig<Record<string, unknown>>> = fc
   .record({
     datasetId: fc.string({ minLength: 1, maxLength: 50 }),
     fields: fc.dictionary(
@@ -116,7 +116,7 @@ function generateValueForType(
 /**
  * Generate a random item matching a bundle configuration.
  */
-export function itemArb(config: CreateBundleConfig): fc.Arbitrary<BundleItem> {
+export function itemArb(config: CreateBundleConfig<Record<string, unknown>>): fc.Arbitrary<BundleItem> {
   return fc.record(
     Object.fromEntries(
       Object.entries(config.fields).map(([fieldName, fieldConfig]) => [
@@ -131,7 +131,7 @@ export function itemArb(config: CreateBundleConfig): fc.Arbitrary<BundleItem> {
  * Generate an array of items matching a bundle configuration.
  */
 export function itemsArb(
-  config: CreateBundleConfig,
+  config: CreateBundleConfig<Record<string, unknown>>,
   minItems: number = 0,
   maxItems: number = 100,
 ): fc.Arbitrary<BundleItem[]> {
@@ -207,7 +207,7 @@ function rangeFilterArb(rangeFields: string[]): fc.Arbitrary<Record<string, { mi
 /**
  * Generate a random query.
  */
-export function queryArb(config: CreateBundleConfig): fc.Arbitrary<LyraQuery> {
+export function queryArb(config: CreateBundleConfig<Record<string, unknown>>): fc.Arbitrary<LyraQuery> {
   const facetFields = Object.entries(config.fields)
     .filter(([, fieldConfig]) => fieldConfig.kind === 'facet')
     .map(([fieldName]) => fieldName);
@@ -229,7 +229,7 @@ export function queryArb(config: CreateBundleConfig): fc.Arbitrary<LyraQuery> {
  * Generate a config with items and queries that match the config.
  */
 export const configWithItemsAndQueryArb: fc.Arbitrary<{
-  config: CreateBundleConfig;
+  config: CreateBundleConfig<Record<string, unknown>>;
   items: BundleItem[];
   query: LyraQuery;
 }> = bundleConfigArb.chain((config) =>
@@ -244,7 +244,7 @@ export const configWithItemsAndQueryArb: fc.Arbitrary<{
  * Generate a config with items (non-empty) and queries that match the config.
  */
 export const configWithItemsAndQueryNonEmptyArb: fc.Arbitrary<{
-  config: CreateBundleConfig;
+  config: CreateBundleConfig<Record<string, unknown>>;
   items: BundleItem[];
   query: LyraQuery;
 }> = bundleConfigArb.chain((config) =>
