@@ -23,7 +23,10 @@
     "docs:generate": "typedoc --options .config/typedoc.config.json",
     "example:build": "bun run examples/basic-usage/build-bundle.ts",
     "example:query": "bun run examples/basic-usage/query-bundle.ts",
-    "example:test": "bun run example:build && bun run example:query"
+    "example:test": "bun run example:build && bun run example:query",
+    "example:agent:build": "bun run examples/agent-tool/build-bundle.ts",
+    "example:agent:run": "bun run examples/agent-tool/agent-tool.ts",
+    "example:agent": "bun run example:agent:build && bun run example:agent:run"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

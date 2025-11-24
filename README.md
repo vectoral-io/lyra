@@ -330,6 +330,71 @@ console.log(result.snapshot);
 ```
 
 
+## Configuration modes
+
+Lyra supports two configuration styles: **explicit fields config** and **simple config**. Choose based on your needs.
+
+### Explicit fields config
+
+Use when you need **strict control** and **long-lived schemas**.
+
+- Full control over field kinds (`id`, `facet`, `range`, `meta`) and types (`string`, `number`, `boolean`, `date`)
+- Explicitly declare every field you want in the manifest
+- Best for production systems where schema stability matters
+
+```ts
+const bundle = await createBundle(tickets, {
+  datasetId: 'tickets-2025-11-22',
+  fields: {
+    id:          { kind: 'id',    type: 'string' },
+    customer:    { kind: 'facet', type: 'string' },
+    priority:    { kind: 'facet', type: 'string' },
+    status:      { kind: 'facet', type: 'string' },
+    productArea: { kind: 'facet', type: 'string' },
+    createdAt:   { kind: 'range', type: 'date' },
+  },
+});
+```
+
+### Simple config
+
+Use when you want **quick value** with **minimal boilerplate**.
+
+- Specify fields by purpose (`id`, `facets`, `ranges`, `meta`)
+- Types are inferred automatically from the data
+- `autoMeta: true` (default) automatically adds remaining simple fields as meta
+- Best for prototyping, one-off scripts, or when you want schema discovery
+
+```ts
+const bundle = await createBundle(tickets, {
+  datasetId: 'tickets-2025-11-22',
+  id: 'id', // optional; will auto-detect 'id'/'Id'/'ID' if omitted
+  facets: ['customer', 'priority', 'status', 'productArea'],
+  ranges: ['createdAt'],
+  // autoMeta: true, // default: auto-add remaining simple fields as meta
+});
+```
+
+**Auto-meta behavior:**
+
+By default (`autoMeta: true`), any remaining primitive fields that are not configured as id, facet, or range are automatically added to the manifest as meta fields. This makes the full record shape visible to agents and tooling while keeping the index focused.
+
+- **Simple fields** (primitives and arrays of primitives) are auto-added as meta
+- **Nested/complex fields** (objects, nested structures) are silently skipped
+- Set `autoMeta: false` to disable this behavior for wide or messy schemas
+
+```ts
+// Disable auto-meta for wide tables
+const bundle = await createBundle(wideTable, {
+  datasetId: 'wide',
+  facets: ['status'],
+  autoMeta: false, // Only explicitly configured fields will appear
+});
+```
+
+See [`examples/basic-usage/`](./examples/basic-usage/) for side-by-side examples of both configuration styles.
+
+
 ## Using Lyra with an LLM agent (outline)
 
 Lyra is designed to be wrapped as a tool.
@@ -526,6 +591,104 @@ const bundle = await createBundle(wideTable, {
 - `FacetCounts` - Aggregated facet counts for a result set
 - `SimpleBundleConfig<TItem>` - Simple, ergonomic bundle configuration with type inference
 - `AnyBundleConfig<TItem>` - Union type representing either explicit or simple config
+
+### Schema Helpers
+
+#### `buildQuerySchema(manifest, options?)`
+
+Builds a JSON schema that describes the structure of a `LyraQuery` for a given manifest. The generated schema matches the `LyraQuery` contract exactly, ensuring type compatibility.
+
+```ts
+declare function buildQuerySchema(
+  manifest: LyraManifest,
+  options?: QuerySchemaOptions
+): JsonSchema;
+
+interface QuerySchemaOptions {
+  /**
+   * How to represent facet values in the schema.
+   * - 'single': Facet values must be a single primitive
+   * - 'single-or-array': Facet values can be either a single primitive or an array (default)
+   */
+  facetArrayMode?: 'single' | 'single-or-array';
+}
+```
+
+The generated schema includes:
+- `facets`: Object with facet field names as keys (with type-specific schemas)
+- `ranges`: Object with range field names as keys (with min/max number properties)
+- `limit`, `offset`: Optional number fields
+- `includeFacetCounts`: Optional boolean field
+
+Example:
+
+```ts
+const manifest = bundle.describe();
+const schema = buildQuerySchema(manifest);
+
+// Use schema for validation, documentation, or tool generation
+```
+
+When `facetArrayMode` is `'single-or-array'` (default), facet fields use `anyOf` to allow both single values and arrays:
+
+```json
+{
+  "anyOf": [
+    { "type": "string" },
+    { "type": "array", "items": { "type": "string" } }
+  ]
+}
+```
+
+When `facetArrayMode` is `'single'`, facet fields are restricted to single primitives:
+
+```json
+{
+  "type": "string"
+}
+```
+
+#### `buildOpenAiTool(manifest, options)`
+
+Builds an OpenAI tool definition from a Lyra manifest. The tool schema is automatically derived from the manifest, ensuring it matches the `LyraQuery` contract exactly.
+
+```ts
+declare function buildOpenAiTool(
+  manifest: LyraManifest,
+  options: OpenAiToolOptions
+): {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: JsonSchema;
+  };
+};
+
+interface OpenAiToolOptions {
+  name: string;
+  description?: string;
+}
+```
+
+Example:
+
+```ts
+const manifest = bundle.describe();
+const tool = buildOpenAiTool(manifest, {
+  name: 'lyraQuery',
+  description: 'Query work items using facet and range filters',
+});
+
+// Pass tool to OpenAI API
+const response = await openai.chat.completions.create({
+  model: 'gpt-4',
+  tools: [tool],
+  // ...
+});
+```
+
+If `description` is omitted, a default description is generated using the dataset ID from the manifest.
 
 ## Error Behavior
 

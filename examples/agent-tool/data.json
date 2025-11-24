@@ -1,0 +1,107 @@
+[
+  {
+    "id": "T-1001",
+    "type": "ticket",
+    "title": "Dashboard performance issue",
+    "customer": "Acme Corp",
+    "priority": "high",
+    "status": "open",
+    "productArea": "analytics",
+    "createdAt": "2025-11-20T10:15:00Z",
+    "dueDate": "2025-11-25T17:00:00Z",
+    "amount": 1500,
+    "assignee": "alice@example.com",
+    "tags": ["performance", "urgent"]
+  },
+  {
+    "id": "T-1002",
+    "type": "ticket",
+    "title": "API rate limiting",
+    "customer": "Acme Corp",
+    "priority": "medium",
+    "status": "in_progress",
+    "productArea": "core",
+    "createdAt": "2025-11-19T08:30:00Z",
+    "dueDate": "2025-11-24T12:00:00Z",
+    "amount": 500,
+    "assignee": "bob@example.com",
+    "tags": ["api", "backend"]
+  },
+  {
+    "id": "TASK-2001",
+    "type": "task",
+    "title": "Update documentation",
+    "priority": "low",
+    "status": "open",
+    "productArea": "docs",
+    "createdAt": "2025-11-18T14:00:00Z",
+    "dueDate": "2025-11-30T18:00:00Z",
+    "assignee": "charlie@example.com",
+    "tags": ["documentation"]
+  },
+  {
+    "id": "EVT-3001",
+    "type": "event",
+    "title": "Product launch webinar",
+    "status": "scheduled",
+    "productArea": "marketing",
+    "createdAt": "2025-11-15T09:00:00Z",
+    "eventDate": "2025-12-01T15:00:00Z",
+    "attendees": 150,
+    "organizer": "diana@example.com",
+    "tags": ["webinar", "launch"]
+  },
+  {
+    "id": "T-1003",
+    "type": "ticket",
+    "title": "Mobile app crash",
+    "customer": "Globex Inc",
+    "priority": "high",
+    "status": "open",
+    "productArea": "mobile",
+    "createdAt": "2025-11-21T14:20:00Z",
+    "dueDate": "2025-11-26T10:00:00Z",
+    "amount": 2000,
+    "assignee": "alice@example.com",
+    "tags": ["crash", "mobile", "urgent"]
+  },
+  {
+    "id": "T-1004",
+    "type": "ticket",
+    "title": "Billing inquiry",
+    "customer": "Globex Inc",
+    "priority": "low",
+    "status": "closed",
+    "productArea": "billing",
+    "createdAt": "2025-11-18T09:00:00Z",
+    "dueDate": "2025-11-20T17:00:00Z",
+    "amount": 300,
+    "assignee": "bob@example.com",
+    "tags": ["billing"]
+  },
+  {
+    "id": "TASK-2002",
+    "type": "task",
+    "title": "Code review for PR #1234",
+    "priority": "medium",
+    "status": "in_progress",
+    "productArea": "core",
+    "createdAt": "2025-11-22T11:00:00Z",
+    "dueDate": "2025-11-23T16:00:00Z",
+    "assignee": "charlie@example.com",
+    "tags": ["code-review"]
+  },
+  {
+    "id": "EVT-3002",
+    "type": "event",
+    "title": "Team standup",
+    "status": "completed",
+    "productArea": "team",
+    "createdAt": "2025-11-22T08:00:00Z",
+    "eventDate": "2025-11-22T09:00:00Z",
+    "attendees": 12,
+    "organizer": "diana@example.com",
+    "tags": ["standup"]
+  }
+]
+

@@ -19,3 +19,20 @@ export type {
   LyraBundleJSON,
   SimpleBundleConfig,
 } from './types';
+
+// Schema Helpers
+// ==============================
+
+export {
+  buildQuerySchema,
+  type JsonSchema,
+  type QuerySchemaOptions,
+} from './schema';
+
+// OpenAI Tool Adapter
+// ==============================
+
+export {
+  buildOpenAiTool,
+  type OpenAiToolOptions,
+} from './openai';
