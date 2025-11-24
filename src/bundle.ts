@@ -3,6 +3,7 @@ import type {
   CreateBundleConfig,
   FacetCounts,
   FacetPostingLists,
+  FieldType,
   LyraBundleJSON,
   LyraManifest,
   LyraQuery,
@@ -45,6 +46,24 @@ export async function createBundle<T extends Record<string, unknown>>(
       : fromSimpleConfig(items, config as SimpleBundleConfig<T>);
 
   return LyraBundle.create(items, explicitConfig);
+}
+
+// Utils
+// ==============================
+
+/**
+ * Parse a facet key string back to its typed value based on field type.
+ * @internal
+ */
+function parseFacetKey(fieldType: FieldType, key: string): string | number | boolean {
+  switch (fieldType) {
+    case 'number':
+      return Number(key);
+    case 'boolean':
+      return key === 'true'; // 'false' -> false, any other string -> false (deterministic)
+    default:
+      return key; // 'string' or 'date' (though date shouldn't be used here)
+  }
 }
 
 // Components
@@ -286,6 +305,76 @@ export class LyraBundle<T extends Record<string, unknown>> {
       facets: facetCounts,
       snapshot,
     };
+  }
+
+  /**
+   * Get a summary of distinct values and counts for a facet field.
+   *
+   * Useful for building dropdowns and drilldown UIs. Returns distinct values
+   * and their counts for a single facet field, optionally filtered by other
+   * facets or ranges.
+   *
+   * @param field - The facet field name to summarize
+   * @param options - Optional filters to apply before counting
+   * @returns Summary object with field name and array of value/count pairs
+   *
+   * @example
+   * ```ts
+   * // Get all distinct status values and counts
+   * const summary = bundle.getFacetSummary('status');
+   * // { field: 'status', values: [{ value: 'open', count: 5 }, ...] }
+   *
+   * // Get status values under current filters
+   * const filteredSummary = bundle.getFacetSummary('status', {
+   *   facets: { customerId: 'C-ACME' }
+   * });
+   * ```
+   */
+  getFacetSummary(
+    field: string,
+    options?: { facets?: LyraQuery['facets']; ranges?: LyraQuery['ranges'] },
+  ): { field: string; values: Array<{ value: string | number | boolean; count: number }> } {
+    // Robust field validation: check both capabilities and field kind
+    const fieldDef = this.manifest.fields.find((f) => f.name === field);
+    if (
+      !fieldDef ||
+      fieldDef.kind !== 'facet' ||
+      !this.manifest.capabilities.facets.includes(field)
+    ) {
+      return { field, values: [] };
+    }
+
+    // Query with includeFacetCounts, limit: 0 to avoid materializing items
+    const result = this.query({
+      facets: options?.facets,
+      ranges: options?.ranges,
+      includeFacetCounts: true,
+      limit: 0,
+      offset: 0,
+    });
+
+    // Extract facet counts with safe fallback
+    const rawCounts = result.facets?.[field] ?? {};
+
+    // Convert string keys back to typed values
+    const values: Array<{ value: string | number | boolean; count: number }> = [];
+    for (const [key, count] of Object.entries(rawCounts)) {
+      const typedValue = parseFacetKey(fieldDef.type, key);
+      values.push({ value: typedValue, count });
+    }
+
+    // Sort by value for stable ordering
+    values.sort((a, b) => {
+      if (typeof a.value === 'number' && typeof b.value === 'number') {
+        return a.value - b.value;
+      }
+      if (typeof a.value === 'boolean' && typeof b.value === 'boolean') {
+        return Number(a.value) - Number(b.value); // false (0) before true (1)
+      }
+      return String(a.value).localeCompare(String(b.value));
+    });
+
+    return { field, values };
   }
 
   /**

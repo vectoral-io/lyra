@@ -458,6 +458,52 @@ const response = await openai.chat.completions.create({
 See [`examples/agent-tool/`](./examples/agent-tool/) for a complete working example.
 
 
+## Dashboards & facet UIs
+
+Lyra provides two patterns for building dashboard dropdowns and drilldown UIs:
+
+### Pattern 1: Raw query with `includeFacetCounts`
+
+Get facet counts for all fields at once:
+
+```ts
+const result = bundle.query({
+  facets: {
+    customerId: 'C-ACME', // Current filter
+  },
+  includeFacetCounts: true,
+});
+
+// result.facets contains counts for all facet fields
+console.log(result.facets?.status); // { open: 5, closed: 3, ... }
+console.log(result.facets?.priority); // { high: 2, medium: 4, ... }
+```
+
+### Pattern 2: `getFacetSummary` for single-field summaries
+
+Get distinct values and counts for a specific facet field:
+
+```ts
+// What floors exist? (global query, no filters)
+const floorsSummary = bundle.getFacetSummary('floor');
+// { field: 'floor', values: [{ value: '1', count: 10 }, { value: '2', count: 8 }, ...] }
+
+// What floors exist under current filters?
+const filteredFloorsSummary = bundle.getFacetSummary('floor', {
+  facets: { customerId: 'C-ACME', status: 'open' },
+});
+// Counts reflect only items matching the filters
+```
+
+**Important notes:**
+
+- **Only facet fields are supported** (`capabilities.facets`). Date fields are ranges and cannot be summarized with `getFacetSummary`.
+- **Counts respect any filters you pass** - they reflect the post-filtered candidate set, perfect for drilldown UIs.
+- **`null`/`undefined` values are excluded** from counts (consistent with query behavior).
+- **Arrays contribute one count per element** (including duplicates). For example, an item with `tags: ['a', 'a', 'b']` contributes `'a': 2` and `'b': 1` to the counts.
+- Values are returned in sorted order (numbers ascending, booleans false-then-true, strings lexicographic).
+
+
 ## Public API
 
 Lyra’s v1 API is intentionally small and stable.
@@ -490,6 +536,12 @@ Core runtime object for querying bundles.
 class LyraBundle<T extends Record<string, unknown>> {
   // Execute a query against the bundle
   query(q: LyraQuery): LyraResult<T>;
+  
+  // Get facet summary for a single field (dashboard-friendly)
+  getFacetSummary(
+    field: string,
+    options?: { facets?: LyraQuery['facets']; ranges?: LyraQuery['ranges'] }
+  ): { field: string; values: Array<{ value: string | number | boolean; count: number }> };
   
   // Get the bundle manifest
   describe(): LyraManifest;
