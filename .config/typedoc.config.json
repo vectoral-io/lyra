@@ -1,0 +1,22 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "tsconfig": "./tsconfig.json",
+  "entryPoints": [
+    "../src/index.ts"
+  ],
+  "out": "../.github/docs/generated",
+  "name": "@vectoral/lyra",
+  "plugin": [
+    "typedoc-plugin-markdown"
+  ],
+  "readme": "none",
+  "mergeReadme": true,
+  "gitRevision": "main",
+  "enumMembersFormat": "table",
+  "parametersFormat": "table",
+  "typeDeclarationFormat": "table",
+  "indexFormat": "table",
+  "useCodeBlocks": true,
+  "expandObjects": true,
+  "hidePageHeader": true
+}

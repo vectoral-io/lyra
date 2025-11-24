@@ -1,0 +1,136 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# JavaScript and TypeScript Style Guide
+
+## General Code Standards
+
+- Prefer **TypeScript** with proper type safety whenever possible.
+- Write **concise, readable** code that follows **DRY** and **SOLID** principles.
+- Prefer **function declarations** over arrow functions, except for inline/anonymous callbacks.
+- Implement **explicit error handling** and handle **edge cases** deliberately.
+- Keep type definitions **simple and understandable**; avoid overly complex generics unless explicitly required.
+- Favor **pure, predictable functions** and avoid unnecessary shared mutable state.
+- Prefer **immutable patterns** (e.g., use `map`, `filter`, `reduce` instead of mutating arrays in-place) when practical.
+
+## Naming & Structure
+
+- Use **clear, descriptive names** that communicate intent:
+  - `isSubmitting`, `hasError`, `totalCount`, `handleSubmit`, `fetchUserProfile`.
+- Suffix **component props interfaces** with `Props`:
+  - `AuthWizardProps`, `ButtonProps`.
+- Use **action-based names** for functions:
+  - `validatePassword`, `createDrizzleClient`, `fetchTickets`, `formatCurrency`.
+- Use **purpose-driven names** for interfaces and types:
+  - `Options`, `Token`, `UserProfile`, `Ticket`, `ApiError`.
+- Follow consistent casing:
+  - **PascalCase** for components and types: `AuthWizard`, `UserProfile`, `TicketStatus`.
+  - **camelCase** for functions, variables, and instances: `useAuth`, `handleClick`, `userId`.
+  - **SCREAMING_SNAKE_CASE** for environment variables: `API_BASE_URL`, `NODE_ENV`.
+  - **kebab-case** for file names: `auth-wizard.tsx`, `ticket-service.ts`.
+  - **kebab-case** for page files: `auth/login.vue`, `tickets/index.tsx`.
+  - **PascalCase** for component files: `AuthWizard.vue`, `UserTable.tsx`.
+  - **camelCase** for composables/hooks: `useAuth.ts`, `useTickets.ts`.
+- Group related logic into **small, focused modules**; avoid "god files" that do too much.
+
+## Code Clarity & Readability
+
+- **Avoid magic numbers**: Use named constants instead of hardcoded numeric or string literals that lack clear meaning:
+  - ❌ Bad: `setTimeout(callback, 30000)`, `if (status === 404)`, `const maxItems = 100`
+  - ✅ Good: `setTimeout(callback, SESSION_TIMEOUT_MS)`, `if (status === HTTP_NOT_FOUND)`, `const MAX_SEARCH_RESULTS = 100`
+  - Common exceptions: `0`, `1`, `-1` for array indices, comparisons, and simple increments/decrements
+- **Use descriptive variable names**: Avoid single-letter variables, abbreviations, or vague names:
+  - ❌ Bad: `const d = new Date()`, `const u = getUser()`, `const temp = calculate()`, `const data = fetch()`
+  - ✅ Good: `const currentDate = new Date()`, `const user = getUser()`, `const calculatedValue = calculate()`, `const userProfiles = fetch()`
+- **Use descriptive function parameters**: Parameter names should clearly indicate their purpose and expected values:
+  - ❌ Bad: `function process(x, y, z)`, `function validate(val)`, `function format(str, num)`
+  - ✅ Good: `function process(userId, timestamp, options)`, `function validate(emailAddress)`, `function format(currencyCode, amount)`
+- **Avoid non-descriptive arguments**: When calling functions, prefer named variables over inline literals when the meaning isn't obvious:
+  - ❌ Bad: `calculateTotal(items, 0.08, true)`
+  - ✅ Good: `const taxRate = 0.08; const includeShipping = true; calculateTotal(items, taxRate, includeShipping)`
+- **Prefer self-documenting code**: Code should read like prose; if you need a comment to explain what a variable or number represents, extract it to a named constant:
+  - ❌ Bad: `if (user.age >= 18) { /* legal age */ }`
+  - ✅ Good: `const LEGAL_ADULT_AGE = 18; if (user.age >= LEGAL_ADULT_AGE) { }`
+
+## Code Organization & Comments
+
+- Break logic into **small, reusable functions**; avoid deeply nested imperative control flow.
+- Prefer **early returns** over large `if/else` blocks to improve readability.
+- Use clear section headers with descriptive comments to structure files:
+
+```ts
+// Types
+// ==============================
+
+// Setup
+// ==============================
+
+// Utils
+// ==============================
+
+// Components
+// ==============================
+```
+
+- Use **single-line comments** (`//`) for inline notes and explanations.
+- Reserve **JSDoc (`/** */`)** for documenting public functions, methods, classes, or modules:
+  - Document **what** the function does and any **non-obvious behavior**.
+  - In TypeScript, avoid duplicating information that is already enforced or obvious from types.
+- Keep comments **up to date**; remove or update comments that are no longer accurate.
+- Avoid using comments to explain **obvious code**; instead, **refactor** unclear code.
+
+## Security
+
+- Always follow **security best practices**:
+  - Avoid exposing secrets or sensitive data (keys, tokens, passwords) in code or logs.
+  - Validate and **sanitize all user input** before using it in queries, rendering, or external requests.
+- Guard against common vulnerabilities:
+  - XSS (cross-site scripting) when rendering user-generated content.
+  - Injection attacks (SQL, command, or template injection).
+  - Insecure use of `eval` or dynamic code execution (generally avoid).
+- Prefer **safe, well-maintained libraries** over hand-rolled crypto, auth, or encoding logic.
+
+## Testing
+
+- Write **comprehensive unit tests** with **Vitest** for critical logic and components.
+- Use **snapshot testing** for UI components where structure and output are important.
+- Test **edge cases** and **error conditions**, not just the happy path.
+- Avoid creating mocks unless explicitly asked to or when they are clearly necessary.
+- Use **descriptive test names** following the `"it should..."` pattern:
+  - `it should return null when user is not found`
+  - `it should render error state when API call fails`
+- Group related tests using `describe` blocks for clarity and structure.
+
+## Documentation & Typedoc
+
+- Use **Typedoc** (configured in `.config/typedoc.config.json`) to generate API documentation from TypeScript source.
+- Generate documentation locally with **Bun**: `bun run docs:generate`.
+- Generated docs are written to `.github/docs/generated` and published automatically as part of the release process; you generally do **not** need to commit them manually.
+- Keep **publicly exported** functions, classes, and types documented with clear JSDoc/TSDoc comments so Typedoc can produce meaningful output.
+- Prefer **concise descriptions** that explain behavior and non-obvious details; avoid repeating information that is already clear from the type signatures.
+
+## Error Handling
+
+- Use **descriptive error messages** that clearly explain what went wrong and why.
+- Include appropriate **error status codes** when working with HTTP or APIs.
+- Handle errors and edge cases **explicitly**, rather than relying on silent failures.
+- Implement **proper error logging** with enough context to debug issues.
+- Use `try/catch` blocks thoughtfully:
+  - Catch at **logical boundaries** (e.g., API calls, I/O, external services).
+  - Avoid swallowing errors; rethrow or wrap with context when needed.
+- Use `finally` blocks (or equivalent patterns) to **clean up resources**:
+  - Close connections, cancel timers, reset state when appropriate.
+
+## Final Checklist
+
+Before finalizing a solution, ask:
+
+- **Can this be broken into smaller, clearer parts?**
+- **Does the code describe the _what_ instead of the _how_ wherever possible?**
+- **Is the code easy to read and clearly documented where it isn’t obvious?**
+- **Have proper error handling and logging been implemented?**
+- **Are edge cases and failure modes handled gracefully?**
+```
