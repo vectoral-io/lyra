@@ -1,17 +1,17 @@
 {
-  "generatedAt": "2025-11-24T18:42:47.969Z",
+  "generatedAt": "2025-11-25T15:59:38.016Z",
   "results": {
     "100k / single facet (customerId)": {
       "iterations": 5000,
-      "meanMs": 0.0267794084
+      "meanMs": 0.0253679668
     },
     "100k / multi-facet + ranges + pagination": {
       "iterations": 5000,
-      "meanMs": 1.5424346582
+      "meanMs": 0.7825918834
     },
     "10k / full feature set": {
       "iterations": 5000,
-      "meanMs": 0.37842100820000013
+      "meanMs": 0.16809755840000015
     }
   }
 }

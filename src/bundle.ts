@@ -65,6 +65,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
   private readonly facetIndex: FacetPostingLists;
   private readonly scratchA: number[];
   private readonly scratchB: number[];
+  private readonly scratchRange: number[];
 
   private constructor(items: T[], manifest: LyraManifest, facetIndex: FacetPostingLists) {
     this.items = items;
@@ -72,6 +73,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
     this.facetIndex = facetIndex;
     this.scratchA = [];
     this.scratchB = [];
+    this.scratchRange = [];
   }
 
   /**
@@ -145,8 +147,23 @@ export class LyraBundle<T extends Record<string, unknown>> {
       }
 
       const values = Array.isArray(value) ? value : [value];
-      const postingsArrays: number[][] = [];
+      
+      // Single-value fast path: skip mergeUnionSorted for common case
+      if (values.length === 1) {
+        const valueKey = String(values[0]);
+        const postings = postingsForField[valueKey];
+        if (!postings || postings.length === 0) {
+          return [];
+        }
+        facetEntries.push({
+          postings,
+          size: postings.length,
+        });
+        continue;
+      }
 
+      // Multi-value case: collect postings arrays
+      const postingsArrays: number[][] = [];
       for (const facetValue of values) {
         const valueKey = String(facetValue);
         const postings = postingsForField[valueKey];
@@ -209,25 +226,37 @@ export class LyraBundle<T extends Record<string, unknown>> {
    */
   private computeFacetCounts(indices: number[]): FacetCounts {
     const facetCounts: FacetCounts = {};
+    // Cache frequently accessed values
     const facetFields = this.manifest.capabilities.facets;
+    const items = this.items;
+    const numFacets = facetFields.length;
 
-    for (const field of facetFields) {
+    // Pre-initialize facetCounts objects
+    for (let i = 0; i < numFacets; i++) {
+      const field = facetFields[i];
       facetCounts[field] = {};
     }
 
     // Iterate through indices that passed both facet and range filters
     for (const idx of indices) {
-      const item = this.items[idx] as Record<string, unknown>;
-      for (const field of facetFields) {
+      const item = items[idx] as Record<string, unknown>;
+      
+      for (let i = 0; i < numFacets; i++) {
+        const field = facetFields[i];
         const raw = item[field];
         if (raw === undefined || raw === null) continue;
 
-        // Handle array values (count each occurrence)
-        const values = Array.isArray(raw) ? raw : [raw];
-
-        for (const value of values) {
-          const valueKey = String(value);
-          const countsForField = facetCounts[field];
+        // Avoid array wrapping for scalar values
+        const countsForField = facetCounts[field];
+        
+        if (Array.isArray(raw)) {
+          for (const value of raw) {
+            const valueKey = String(value);
+            countsForField[valueKey] = (countsForField[valueKey] ?? 0) + 1;
+          }
+        }
+        else {
+          const valueKey = String(raw);
           countsForField[valueKey] = (countsForField[valueKey] ?? 0) + 1;
         }
       }
@@ -249,10 +278,14 @@ export class LyraBundle<T extends Record<string, unknown>> {
     const { facets, ranges, limit, offset, includeFacetCounts = false } = query;
     const hasRangeFilters = ranges != null && Object.keys(ranges).length > 0;
 
+    // Cache manifest lookups
+    const manifest = this.manifest;
+    const items = this.items;
+
     // Pre-check: if any requested range field is not in capabilities.ranges, return empty result
     if (hasRangeFilters) {
       const rangeFields = Object.keys(ranges!);
-      const validRangeFields = new Set(this.manifest.capabilities.ranges);
+      const validRangeFields = new Set(manifest.capabilities.ranges);
       const hasInvalidRangeField = rangeFields.some((field) => !validRangeFields.has(field));
       if (hasInvalidRangeField) {
         return this.emptyResult({ facets, ranges });
@@ -269,7 +302,25 @@ export class LyraBundle<T extends Record<string, unknown>> {
     // Apply range filters on indices (optimized)
     // Note: Range min/max must be numbers; for dates, use epoch milliseconds (e.g., Date.parse(isoString))
     if (hasRangeFilters) {
-      candidateIndices = arrayOperations.filterIndicesByRange(candidateIndices, this.items, ranges!);
+      // Build field type map for range fields in query
+      const fieldTypes: Record<string, FieldType> = {};
+      const rangeFields = Object.keys(ranges!);
+      for (const field of rangeFields) {
+        const fieldDef = manifest.fields.find((fieldDefinition) => fieldDefinition.name === field);
+        if (fieldDef) {
+          fieldTypes[field] = fieldDef.type;
+        }
+      }
+      
+      // Reuse scratch array for range filtering
+      arrayOperations.filterIndicesByRange(
+        candidateIndices,
+        items,
+        ranges!,
+        fieldTypes,
+        this.scratchRange,
+      );
+      candidateIndices = this.scratchRange;
     }
 
     const total = candidateIndices.length;
@@ -283,10 +334,10 @@ export class LyraBundle<T extends Record<string, unknown>> {
     const paginatedIndices = candidateIndices.slice(start, end);
 
     // Convert indices to items only for the final paginated slice
-    const items = paginatedIndices.map((idx) => this.items[idx]);
+    const resultItems = paginatedIndices.map((idx) => items[idx]);
 
     return {
-      items,
+      items: resultItems,
       total,
       applied: {
         facets,
