@@ -1,14 +1,18 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vectoral-io/lyra/HEAD/.github/logo-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/vectoral-io/lyra/HEAD/.github/logo-light.png">
-    <img alt="Lyra" src="https://raw.githubusercontent.com/vectoral-io/lyra/HEAD/.github/logo-light.png" height="70" style="max-width: 100%;">
+    <source media="(prefers-color-scheme: dark)" srcset="./.github/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="./.github/logo-light.png">
+    <img alt="Lyra" src="./.github/logo-light.png" height="70" style="max-width: 100%;">
   </picture>
 </p>
 
-Lyra is a lightweight engine that builds **precomputed faceted indexes** from structured data.
+<p align="center">
+  A lightweight engine for building precomputed indexes from structured data.
+</p>
 
-You:
+---
+
+With Lyra, you:
 
 - Build a snapshot of your data offline or in CI.
 - Ship that snapshot as JSON.
