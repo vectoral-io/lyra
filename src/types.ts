@@ -1,6 +1,3 @@
-// Types
-// ==============================
-
 /**
  * Primitive values that can be used in facet filters.
  */

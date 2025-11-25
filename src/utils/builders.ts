@@ -6,8 +6,6 @@ import type {
   LyraManifest,
 } from '../types';
 
-// Builder Functions
-// ==============================
 
 /**
  * Build a manifest from bundle configuration.

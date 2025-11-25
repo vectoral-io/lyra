@@ -1,6 +1,3 @@
-// Schema Helpers
-// ==============================
-
 import type { LyraManifest } from './types';
 
 /**

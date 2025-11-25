@@ -1,11 +1,7 @@
-// Core
-// ==============================
-
 export { createBundle, LyraBundle } from './bundle';
 
 // Types
 // ==============================
-
 export type {
   AnyBundleConfig,
   CreateBundleConfig,
@@ -22,7 +18,6 @@ export type {
 
 // Schema Helpers
 // ==============================
-
 export {
   buildQuerySchema,
   type JsonSchema,
@@ -31,7 +26,6 @@ export {
 
 // OpenAI Tool Adapter
 // ==============================
-
 export {
   buildOpenAiTool,
   type OpenAiToolOptions,

@@ -1,13 +1,10 @@
-// OpenAI Tool Adapter
-// ==============================
-
 import type { LyraManifest } from './types';
 import type { JsonSchema } from './schema';
 import { buildQuerySchema } from './schema';
 
-/**
- * Options for building OpenAI tool definitions.
- */
+
+// Types
+// ==============================
 export interface OpenAiToolOptions {
   /**
    * The name of the tool function (required).
@@ -20,6 +17,16 @@ export interface OpenAiToolOptions {
   description?: string;
 }
 
+interface OpenAiTool {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: JsonSchema;
+  };
+}
+
+
 /**
  * Build an OpenAI tool definition from a Lyra manifest.
  *
@@ -30,17 +37,7 @@ export interface OpenAiToolOptions {
  * @param options - Options for tool generation (name and optional description)
  * @returns An OpenAI tool definition object
  */
-export function buildOpenAiTool(
-  manifest: LyraManifest,
-  options: OpenAiToolOptions,
-): {
-  type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: JsonSchema;
-  };
-} {
+export function buildOpenAiTool(manifest: LyraManifest, options: OpenAiToolOptions): OpenAiTool {
   const parameters = buildQuerySchema(manifest, {
     facetArrayMode: 'single-or-array',
   });
@@ -49,11 +46,8 @@ export function buildOpenAiTool(
     type: 'function',
     function: {
       name: options.name,
-      description:
-        options.description ??
-        `Query dataset "${manifest.datasetId}" using facet and range filters`,
+      description: options.description ?? `Query dataset "${manifest.datasetId}" using facet and range filters`,
       parameters,
     },
   };
 }
-

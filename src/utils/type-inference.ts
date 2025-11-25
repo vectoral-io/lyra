@@ -5,8 +5,6 @@ import type {
   SimpleBundleConfig,
 } from '../types';
 
-// Type Inference Helpers
-// ==============================
 
 /**
  * Check if a value is a simple primitive or array of primitives.

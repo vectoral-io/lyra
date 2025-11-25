@@ -17,25 +17,28 @@ import { fromSimpleConfig } from './utils/type-inference';
 
 
 /**
- * Create a bundle from items and explicit configuration.
+ * Create a bundle from items.
+ *
+ * Overloads:
+ * - Explicit config: full control over field kinds/types via `CreateBundleConfig`.
+ * - Simple config: ergonomic `SimpleBundleConfig` that infers types from data.
+ *
+ * Both return a `LyraBundle<T>` with the same runtime behavior.
  */
+
+// Explicit config overload
 export function createBundle<T extends Record<string, unknown>>(
   items: T[],
   config: CreateBundleConfig<T>,
 ): Promise<LyraBundle<T>>;
 
-/**
- * Create a bundle from items and simple configuration.
- */
+// Simple config overload
 export function createBundle<T extends Record<string, unknown>>(
   items: T[],
   config: SimpleBundleConfig<T>,
 ): Promise<LyraBundle<T>>;
 
-/**
- * Create a bundle from items and configuration.
- * Supports both explicit and simple configuration styles.
- */
+// Implementation
 export async function createBundle<T extends Record<string, unknown>>(
   items: T[],
   config: AnyBundleConfig<T>,
@@ -48,24 +51,6 @@ export async function createBundle<T extends Record<string, unknown>>(
   return LyraBundle.create(items, explicitConfig);
 }
 
-// Utils
-// ==============================
-
-/**
- * Parse a facet key string back to its typed value based on field type.
- * @internal
- */
-function parseFacetKey(fieldType: FieldType, key: string): string | number | boolean {
-  switch (fieldType) {
-    case 'number':
-      return Number(key);
-    case 'boolean':
-      return key === 'true'; // 'false' -> false, any other string -> false (deterministic)
-    default:
-      return key; // 'string' or 'date' (though date shouldn't be used here)
-  }
-}
-
 // Components
 // ==============================
 
@@ -73,6 +58,8 @@ function parseFacetKey(fieldType: FieldType, key: string): string | number | boo
  * Immutable bundle of items plus a manifest that describes fields and capabilities.
  */
 export class LyraBundle<T extends Record<string, unknown>> {
+  private static readonly SCRATCH_ARRAY_COUNT = 2;
+
   private readonly items: T[];
   private readonly manifest: LyraManifest;
   private readonly facetIndex: FacetPostingLists;
@@ -122,6 +109,134 @@ export class LyraBundle<T extends Record<string, unknown>> {
   }
 
   /**
+   * Return an empty result with the given applied filters.
+   * @internal
+   */
+  private emptyResult(applied: {
+    facets?: LyraQuery['facets'];
+    ranges?: LyraQuery['ranges'];
+  }): LyraResult<T> {
+    return {
+      items: [],
+      total: 0,
+      applied,
+      facets: undefined,
+      snapshot: this.snapshot(),
+    };
+  }
+
+  /**
+   * Compute candidate indices based on facet filters.
+   * @internal
+   */
+  private getFacetCandidates(facets: LyraQuery['facets'] | undefined): number[] {
+    if (facets == null || Object.keys(facets).length === 0) {
+      // All indices
+      return Array.from({ length: this.items.length }, (_unused, i) => i);
+    }
+
+    const facetEntries: Array<{ postings: number[]; size: number }> = [];
+
+    for (const [field, value] of Object.entries(facets)) {
+      const postingsForField = this.facetIndex[field];
+      if (!postingsForField) {
+        // Field not indexed as facet; no matches
+        return [];
+      }
+
+      const values = Array.isArray(value) ? value : [value];
+      const postingsArrays: number[][] = [];
+
+      for (const facetValue of values) {
+        const valueKey = String(facetValue);
+        const postings = postingsForField[valueKey];
+        if (postings && postings.length > 0) {
+          postingsArrays.push(postings);
+        }
+      }
+
+      if (postingsArrays.length === 0) {
+        return [];
+      }
+
+      // Merge postings for this facet (union for "IN" semantics)
+      const mergedPostings = arrayOperations.mergeUnionSorted(postingsArrays);
+      const estimatedSize = mergedPostings.length;
+
+      facetEntries.push({
+        postings: mergedPostings,
+        size: estimatedSize,
+      });
+    }
+
+    // Sort facets by estimated size ascending
+    facetEntries.sort((entryA, entryB) => entryA.size - entryB.size);
+
+    // Intersect facets in order of increasing size
+    let candidateIndices: number[] | null = null;
+
+    for (let i = 0; i < facetEntries.length; i++) {
+      const facetEntry = facetEntries[i];
+
+      if (candidateIndices === null) {
+        // Seed with smallest facet's postings
+        candidateIndices = facetEntry.postings;
+      }
+      else {
+        // Intersect with next facet using scratch arrays
+        const source = candidateIndices;
+        const target =
+          i % LyraBundle.SCRATCH_ARRAY_COUNT === 0 ? this.scratchA : this.scratchB;
+
+        arrayOperations.intersectSorted(source, facetEntry.postings, target);
+        candidateIndices = target;
+
+        // Early-out if intersection is empty
+        if (candidateIndices.length === 0) break;
+      }
+    }
+
+    if (candidateIndices === null) {
+      return Array.from({ length: this.items.length }, (_unused, i) => i);
+    }
+
+    return candidateIndices;
+  }
+
+  /**
+   * Compute facet counts for the given candidate indices.
+   * @internal
+   */
+  private computeFacetCounts(indices: number[]): FacetCounts {
+    const facetCounts: FacetCounts = {};
+    const facetFields = this.manifest.capabilities.facets;
+
+    for (const field of facetFields) {
+      facetCounts[field] = {};
+    }
+
+    // Iterate through indices that passed both facet and range filters
+    for (const idx of indices) {
+      const item = this.items[idx] as Record<string, unknown>;
+      for (const field of facetFields) {
+        const raw = item[field];
+        if (raw === undefined || raw === null) continue;
+
+        // Handle array values (count each occurrence)
+        const values = Array.isArray(raw) ? raw : [raw];
+
+        for (const value of values) {
+          const valueKey = String(value);
+          const countsForField = facetCounts[field];
+          countsForField[valueKey] = (countsForField[valueKey] ?? 0) + 1;
+        }
+      }
+    }
+
+    return facetCounts;
+  }
+
+  /**
    * Execute a facet/range query against the bundle.
    *
    * Query contract:
@@ -132,8 +247,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
    */
   query(query: LyraQuery = {}): LyraResult<T> {
     const { facets, ranges, limit, offset, includeFacetCounts = false } = query;
-    const hasFacetFilters = facets && Object.keys(facets).length > 0;
-    const hasRangeFilters = ranges && Object.keys(ranges).length > 0;
+    const hasRangeFilters = ranges != null && Object.keys(ranges).length > 0;
 
     // Pre-check: if any requested range field is not in capabilities.ranges, return empty result
     if (hasRangeFilters) {
@@ -141,22 +255,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
       const validRangeFields = new Set(this.manifest.capabilities.ranges);
       const hasInvalidRangeField = rangeFields.some((field) => !validRangeFields.has(field));
       if (hasInvalidRangeField) {
-        // Unknown range field; return empty result
-        const snapshot: LyraSnapshotInfo = {
-          datasetId: this.manifest.datasetId,
-          builtAt: this.manifest.builtAt,
-          indexVersion: this.manifest.version,
-        };
-        return {
-          items: [],
-          total: 0,
-          applied: {
-            facets,
-            ranges,
-          },
-          facets: undefined,
-          snapshot,
-        };
+        return this.emptyResult({ facets, ranges });
       }
     }
 
@@ -164,85 +263,8 @@ export class LyraBundle<T extends Record<string, unknown>> {
     const normalizedOffset = offset != null && offset < 0 ? 0 : (offset ?? 0);
     const normalizedLimit = limit != null && limit < 0 ? 0 : limit;
 
-    let candidateIndices: number[] | null = null;
-
-    if (hasFacetFilters) {
-      // Build array of facet entries with their postings and estimated sizes
-      const facetEntries: Array<{
-        field: string;
-        postings: number[];
-        size: number;
-      }> = [];
-
-      for (const [field, value] of Object.entries(facets!)) {
-        const postingsForField = this.facetIndex[field];
-        if (!postingsForField) {
-          // Field not indexed as facet; no matches
-          candidateIndices = [];
-          break;
-        }
-
-        const values = Array.isArray(value) ? value : [value];
-        const postingsArrays: number[][] = [];
-
-        for (const facetValue of values) {
-          const valueKey = String(facetValue);
-          const postings = postingsForField[valueKey];
-          if (postings && postings.length > 0) {
-            postingsArrays.push(postings);
-          }
-        }
-
-        if (postingsArrays.length === 0) {
-          candidateIndices = [];
-          break;
-        }
-
-        // Merge postings for this facet (union for "IN" semantics)
-        const mergedPostings = arrayOperations.mergeUnionSorted(postingsArrays);
-        const estimatedSize = mergedPostings.length;
-
-        facetEntries.push({
-          field,
-          postings: mergedPostings,
-          size: estimatedSize,
-        });
-      }
-
-      // Sort facets by estimated size ascending
-      facetEntries.sort((entryA, entryB) => entryA.size - entryB.size);
-
-      // Intersect facets in order of increasing size
-      for (let i = 0; i < facetEntries.length; i++) {
-        const facetEntry = facetEntries[i];
-
-        if (candidateIndices === null) {
-          // Seed with smallest facet's postings
-          candidateIndices = facetEntry.postings;
-        }
-        else {
-          // Intersect with next facet using scratch arrays
-          const source = candidateIndices;
-          const SCRATCH_ARRAY_COUNT = 2;
-          const target = i % SCRATCH_ARRAY_COUNT === 0 ? this.scratchA : this.scratchB;
-
-          arrayOperations.intersectSorted(source, facetEntry.postings, target);
-          candidateIndices = target;
-
-          // Early-out if intersection is empty
-          if (candidateIndices.length === 0) break;
-        }
-      }
-    }
-
-    // Initialize candidateIndices if no facet filters
-    if (candidateIndices === null) {
-      // Create array of all indices
-      candidateIndices = new Array(this.items.length);
-      for (let i = 0; i < this.items.length; i++) {
-        candidateIndices[i] = i;
-      }
-    }
+    // Get candidate indices from facet filters
+    let candidateIndices = this.getFacetCandidates(facets);
 
     // Apply range filters on indices (optimized)
     // Note: Range min/max must be numbers; for dates, use epoch milliseconds (e.g., Date.parse(isoString))
@@ -252,34 +274,8 @@ export class LyraBundle<T extends Record<string, unknown>> {
 
     const total = candidateIndices.length;
 
-    // Compute facet counts if requested (iterate over indices for efficiency)
-    let facetCounts: FacetCounts | undefined;
-    if (includeFacetCounts) {
-      facetCounts = {};
-      const facetFields = this.manifest.capabilities.facets;
-
-      for (const field of facetFields) {
-        facetCounts[field] = {};
-      }
-
-      // Iterate through indices that passed both facet and range filters
-      for (const idx of candidateIndices) {
-        const item = this.items[idx];
-        for (const field of facetFields) {
-          const raw = (item as Record<string, unknown>)[field];
-          if (raw === undefined || raw === null) continue;
-
-          // Handle array values (count each occurrence)
-          const values = Array.isArray(raw) ? raw : [raw];
-
-          for (const value of values) {
-            const valueKey = String(value);
-            const countsForField = facetCounts[field];
-            countsForField[valueKey] = (countsForField[valueKey] ?? 0) + 1;
-          }
-        }
-      }
-    }
+    // Compute facet counts if requested
+    const facetCounts = includeFacetCounts ? this.computeFacetCounts(candidateIndices) : undefined;
 
     // Apply pagination on indices (using normalized values)
     const start = normalizedOffset;
@@ -289,12 +285,6 @@ export class LyraBundle<T extends Record<string, unknown>> {
     // Convert indices to items only for the final paginated slice
     const items = paginatedIndices.map((idx) => this.items[idx]);
 
-    const snapshot: LyraSnapshotInfo = {
-      datasetId: this.manifest.datasetId,
-      builtAt: this.manifest.builtAt,
-      indexVersion: this.manifest.version,
-    };
-
     return {
       items,
       total,
@@ -303,7 +293,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
         ranges,
       },
       facets: facetCounts,
-      snapshot,
+      snapshot: this.snapshot(),
     };
   }
 
@@ -398,7 +388,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
   /**
    * Serialize the bundle to a plain JSON-compatible structure.
    *
-   * NOTE: Any structural change here must be reflected in docs/bundle-json-spec.md
+   *! NOTE: Any structural change here must be reflected in docs/bundle-json-spec.md
    */
   toJSON(): LyraBundleJSON<T> {
     return {
@@ -411,7 +401,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
   /**
    * Load a bundle from a previously serialized JSON value.
    *
-   * NOTE: Any structural change here must be reflected in docs/bundle-json-spec.md
+   *! NOTE: Any structural change here must be reflected in docs/bundle-json-spec.md
    */
   static load<TItem extends Record<string, unknown>>(
     raw: LyraBundleJSON<TItem>,
@@ -476,5 +466,25 @@ export class LyraBundle<T extends Record<string, unknown>> {
     }
 
     return new LyraBundle<TItem>(items, manifest, finalFacetIndex);
+  }
+}
+
+// Internal Helpers
+// ==============================
+
+/**
+ * Parse a facet key string back to its typed value based on field type.
+ * Used internally by getFacetSummary to convert string keys back to typed values.
+ * @internal
+ */
+function parseFacetKey(fieldType: FieldType, key: string): string | number | boolean {
+  switch (fieldType) {
+    case 'number':
+      return Number(key);
+    case 'boolean':
+      // 'true' -> true, anything else -> false (deterministic)
+      return key === 'true';
+    default:
+      return key; // 'string' or 'date' (though date shouldn't be used here)
   }
 }

@@ -1,7 +1,5 @@
 import type { RangeFilter } from '../types';
 
-// Utils
-// ==============================
 
 /**
  * Merge multiple sorted arrays into a single sorted, deduplicated array.
