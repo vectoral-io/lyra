@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vectoral-io/lyra/HEAD/.github/logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/vectoral-io/lyra/HEAD/.github/logo-light.svg">
-    <img alt="Lyra" src="https://raw.githubusercontent.com/vectoral-io/lyra/HEAD/.github/logo-light.svg" width="350" height="70" style="max-width: 100%;">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vectoral-io/lyra/HEAD/.github/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/vectoral-io/lyra/HEAD/.github/logo-light.png">
+    <img alt="Lyra" src="https://raw.githubusercontent.com/vectoral-io/lyra/HEAD/.github/logo-light.png" height="70" style="max-width: 100%;">
   </picture>
 </p>
 
