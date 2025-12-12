@@ -139,28 +139,28 @@ export function buildQuerySchema(
 
   const facetsSchema = includeArrayQueryFormat
     ? {
-        anyOf: [
-          facetsObjectSchema,
-          {
-            type: 'array',
-            description: 'Array of facet filter objects (combined with facetMode)',
-            items: facetsObjectSchema,
-          },
-        ],
-      }
+      anyOf: [
+        facetsObjectSchema,
+        {
+          type: 'array',
+          description: 'Array of facet filter objects (combined with facetMode)',
+          items: facetsObjectSchema,
+        },
+      ],
+    }
     : facetsObjectSchema;
 
   const rangesSchema = includeArrayQueryFormat
     ? {
-        anyOf: [
-          rangesObjectSchema,
-          {
-            type: 'array',
-            description: 'Array of range filter objects (combined with rangeMode)',
-            items: rangesObjectSchema,
-          },
-        ],
-      }
+      anyOf: [
+        rangesObjectSchema,
+        {
+          type: 'array',
+          description: 'Array of range filter objects (combined with rangeMode)',
+          items: rangesObjectSchema,
+        },
+      ],
+    }
     : rangesObjectSchema;
 
   // Build properties object
