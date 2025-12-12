@@ -15,6 +15,13 @@ export interface QuerySchemaOptions {
    * - `'single-or-array'`: Facet values can be either a single primitive or an array of primitives (default)
    */
   facetArrayMode?: 'single' | 'single-or-array';
+  /**
+   * Whether to include support for array query format (facets/ranges as arrays).
+   * When enabled, the schema allows both single objects and arrays of objects for facets and ranges,
+   * and includes facetMode/rangeMode parameters.
+   * Default: false (for backward compatibility)
+   */
+  includeArrayQueryFormat?: boolean;
 }
 
 /**
@@ -37,7 +44,7 @@ export function buildQuerySchema(
   manifest: LyraManifest,
   options: QuerySchemaOptions = {},
 ): JsonSchema {
-  const { facetArrayMode = 'single-or-array' } = options;
+  const { facetArrayMode = 'single-or-array', includeArrayQueryFormat = false } = options;
 
   // Build a map of field names to field definitions for quick lookup
   const fieldMap = new Map<string, LyraManifest['fields'][0]>();
@@ -115,35 +122,83 @@ export function buildQuerySchema(
     };
   }
 
+  // Build facets and ranges schema (single object or array support)
+  const facetsObjectSchema = {
+    type: 'object',
+    description: 'Facet filters (equality matching)',
+    properties: facetProperties,
+    additionalProperties: false,
+  };
+
+  const rangesObjectSchema = {
+    type: 'object',
+    description: 'Range filters (min/max bounds per field)',
+    properties: rangeProperties,
+    additionalProperties: false,
+  };
+
+  const facetsSchema = includeArrayQueryFormat
+    ? {
+        anyOf: [
+          facetsObjectSchema,
+          {
+            type: 'array',
+            description: 'Array of facet filter objects (combined with facetMode)',
+            items: facetsObjectSchema,
+          },
+        ],
+      }
+    : facetsObjectSchema;
+
+  const rangesSchema = includeArrayQueryFormat
+    ? {
+        anyOf: [
+          rangesObjectSchema,
+          {
+            type: 'array',
+            description: 'Array of range filter objects (combined with rangeMode)',
+            items: rangesObjectSchema,
+          },
+        ],
+      }
+    : rangesObjectSchema;
+
+  // Build properties object
+  const properties: Record<string, unknown> = {
+    facets: facetsSchema,
+    ranges: rangesSchema,
+    limit: {
+      type: 'number',
+      description: 'Maximum number of results to return',
+    },
+    offset: {
+      type: 'number',
+      description: 'Number of results to skip (for pagination)',
+    },
+    includeFacetCounts: {
+      type: 'boolean',
+      description: 'Include facet counts in the response',
+    },
+  };
+
+  // Add facetMode and rangeMode if array query format is enabled
+  if (includeArrayQueryFormat) {
+    properties.facetMode = {
+      type: 'string',
+      enum: ['union', 'intersection'],
+      description: 'How to combine multiple facet objects: union (OR) or intersection (AND). Default: union',
+    };
+    properties.rangeMode = {
+      type: 'string',
+      enum: ['union', 'intersection'],
+      description: 'How to combine multiple range objects: union (OR) or intersection (AND). Default: union',
+    };
+  }
+
   // Build top-level schema matching LyraQuery contract
   return {
     type: 'object',
-    properties: {
-      facets: {
-        type: 'object',
-        description: 'Facet filters (equality matching)',
-        properties: facetProperties,
-        additionalProperties: false,
-      },
-      ranges: {
-        type: 'object',
-        description: 'Range filters (min/max bounds per field)',
-        properties: rangeProperties,
-        additionalProperties: false,
-      },
-      limit: {
-        type: 'number',
-        description: 'Maximum number of results to return',
-      },
-      offset: {
-        type: 'number',
-        description: 'Number of results to skip (for pagination)',
-      },
-      includeFacetCounts: {
-        type: 'boolean',
-        description: 'Include facet counts in the response',
-      },
-    },
+    properties,
     additionalProperties: false,
   };
 }

@@ -2,13 +2,17 @@ import type {
   AnyBundleConfig,
   CreateBundleConfig,
   FacetCounts,
+  FacetMode,
   FacetPostingLists,
+  FacetValue,
   FieldType,
   LyraBundleJSON,
   LyraManifest,
   LyraQuery,
   LyraResult,
   LyraSnapshotInfo,
+  RangeFilter,
+  RangeMode,
   SimpleBundleConfig,
 } from './types';
 import * as arrayOperations from './utils/array-operations';
@@ -128,18 +132,19 @@ export class LyraBundle<T extends Record<string, unknown>> {
   }
 
   /**
-   * Compute candidate indices based on facet filters.
+   * Compute candidate indices for a single facet object.
+   * All fields within the facet object are intersected (AND logic).
    * @internal
    */
-  private getFacetCandidates(facets: LyraQuery['facets'] | undefined): number[] {
-    if (facets == null || Object.keys(facets).length === 0) {
+  private getSingleFacetCandidates(facetObj: Record<string, FacetValue>): number[] {
+    if (Object.keys(facetObj).length === 0) {
       // All indices
       return Array.from({ length: this.items.length }, (_unused, i) => i);
     }
 
     const facetEntries: Array<{ postings: number[]; size: number }> = [];
 
-    for (const [field, value] of Object.entries(facets)) {
+    for (const [field, value] of Object.entries(facetObj)) {
       const postingsForField = this.facetIndex[field];
       if (!postingsForField) {
         // Field not indexed as facet; no matches
@@ -221,6 +226,159 @@ export class LyraBundle<T extends Record<string, unknown>> {
   }
 
   /**
+   * Compute candidate indices based on facet filters (array of facet objects).
+   * Combines results based on the specified mode.
+   * @internal
+   */
+  private getFacetCandidates(
+    facetObjs: Array<Record<string, FacetValue>>,
+    mode: FacetMode,
+  ): number[] {
+    if (facetObjs.length === 0) {
+      // No facet filters; return all indices
+      return Array.from({ length: this.items.length }, (_unused, i) => i);
+    }
+
+    // Get candidates for each facet object
+    const candidateSets: number[][] = [];
+    for (const facetObj of facetObjs) {
+      const candidates = this.getSingleFacetCandidates(facetObj);
+      if (candidates.length > 0) {
+        candidateSets.push(candidates);
+      }
+      else if (mode === 'intersection') {
+        // Early exit for intersection if any set is empty
+        return [];
+      }
+    }
+
+    if (candidateSets.length === 0) {
+      return [];
+    }
+
+    if (candidateSets.length === 1) {
+      return candidateSets[0];
+    }
+
+    // Combine candidate sets based on mode
+    if (mode === 'union') {
+      return arrayOperations.mergeUnionSorted(candidateSets);
+    }
+    else {
+      // Intersection mode: start with first set and intersect with others
+      let result = candidateSets[0];
+      for (let i = 1; i < candidateSets.length; i++) {
+        const target = i % LyraBundle.SCRATCH_ARRAY_COUNT === 0 ? this.scratchA : this.scratchB;
+        arrayOperations.intersectSorted(result, candidateSets[i], target);
+        result = target;
+        
+        // Early exit if intersection is empty
+        if (result.length === 0) {
+          return [];
+        }
+      }
+      return result;
+    }
+  }
+
+  /**
+   * Apply a single range filter object to candidate indices.
+   * @internal
+   */
+  private getSingleRangeCandidates(
+    startIndices: number[],
+    rangeObj: Record<string, RangeFilter>,
+  ): number[] {
+    if (Object.keys(rangeObj).length === 0) {
+      return startIndices;
+    }
+
+    // Validate range fields
+    const rangeFields = Object.keys(rangeObj);
+    const validRangeFields = new Set(this.manifest.capabilities.ranges);
+    const hasInvalidRangeField = rangeFields.some((field) => !validRangeFields.has(field));
+    if (hasInvalidRangeField) {
+      return [];
+    }
+
+    // Build field type map for range fields in query
+    const fieldTypes: Record<string, FieldType> = {};
+    for (const field of rangeFields) {
+      const fieldDef = this.manifest.fields.find((fieldDefinition) => fieldDefinition.name === field);
+      if (fieldDef) {
+        fieldTypes[field] = fieldDef.type;
+      }
+    }
+
+    // Reuse scratch array for range filtering
+    arrayOperations.filterIndicesByRange(
+      startIndices,
+      this.items,
+      rangeObj,
+      fieldTypes,
+      this.scratchRange,
+    );
+    return this.scratchRange.slice(); // Return a copy to avoid overwriting
+  }
+
+  /**
+   * Compute candidate indices based on range filters (array of range objects).
+   * Combines results based on the specified mode.
+   * @internal
+   */
+  private getRangeCandidates(
+    startIndices: number[],
+    rangeObjs: Array<Record<string, RangeFilter>>,
+    mode: RangeMode,
+  ): number[] {
+    if (rangeObjs.length === 0) {
+      // No range filters; return input indices unchanged
+      return startIndices;
+    }
+
+    // Get candidates for each range object
+    const candidateSets: number[][] = [];
+    for (const rangeObj of rangeObjs) {
+      const candidates = this.getSingleRangeCandidates(startIndices, rangeObj);
+      if (candidates.length > 0) {
+        candidateSets.push(candidates);
+      }
+      else if (mode === 'intersection') {
+        // Early exit for intersection if any set is empty
+        return [];
+      }
+    }
+
+    if (candidateSets.length === 0) {
+      return [];
+    }
+
+    if (candidateSets.length === 1) {
+      return candidateSets[0];
+    }
+
+    // Combine candidate sets based on mode
+    if (mode === 'union') {
+      return arrayOperations.mergeUnionSorted(candidateSets);
+    }
+    else {
+      // Intersection mode: start with first set and intersect with others
+      let result = candidateSets[0];
+      for (let i = 1; i < candidateSets.length; i++) {
+        const target = i % LyraBundle.SCRATCH_ARRAY_COUNT === 0 ? this.scratchA : this.scratchB;
+        arrayOperations.intersectSorted(result, candidateSets[i], target);
+        result = target;
+        
+        // Early exit if intersection is empty
+        if (result.length === 0) {
+          return [];
+        }
+      }
+      return result;
+    }
+  }
+
+  /**
    * Compute facet counts for the given candidate indices.
    * @internal
    */
@@ -273,55 +431,36 @@ export class LyraBundle<T extends Record<string, unknown>> {
    * - Unknown range fields: treated as "no matches" (returns total = 0)
    * - Negative offset: clamped to 0
    * - Negative limit: treated as 0 (no results)
+   * - facetMode and rangeMode default to 'union'
    */
   query(query: LyraQuery = {}): LyraResult<T> {
-    const { facets, ranges, limit, offset, includeFacetCounts = false } = query;
-    const hasRangeFilters = ranges != null && Object.keys(ranges).length > 0;
+    const { 
+      facets, 
+      ranges, 
+      facetMode = 'union',
+      rangeMode = 'union',
+      limit, 
+      offset, 
+      includeFacetCounts = false,
+    } = query;
+
+    // Normalize facets and ranges to array format
+    const normalizedFacets = normalizeFacets(facets);
+    const normalizedRanges = normalizeRanges(ranges);
 
     // Cache manifest lookups
-    const manifest = this.manifest;
     const items = this.items;
-
-    // Pre-check: if any requested range field is not in capabilities.ranges, return empty result
-    if (hasRangeFilters) {
-      const rangeFields = Object.keys(ranges!);
-      const validRangeFields = new Set(manifest.capabilities.ranges);
-      const hasInvalidRangeField = rangeFields.some((field) => !validRangeFields.has(field));
-      if (hasInvalidRangeField) {
-        return this.emptyResult({ facets, ranges });
-      }
-    }
 
     // Normalize offset and limit
     const normalizedOffset = offset != null && offset < 0 ? 0 : (offset ?? 0);
     const normalizedLimit = limit != null && limit < 0 ? 0 : limit;
 
     // Get candidate indices from facet filters
-    let candidateIndices = this.getFacetCandidates(facets);
+    let candidateIndices = this.getFacetCandidates(normalizedFacets, facetMode);
 
-    // Apply range filters on indices (optimized)
+    // Apply range filters on indices
     // Note: Range min/max must be numbers; for dates, use epoch milliseconds (e.g., Date.parse(isoString))
-    if (hasRangeFilters) {
-      // Build field type map for range fields in query
-      const fieldTypes: Record<string, FieldType> = {};
-      const rangeFields = Object.keys(ranges!);
-      for (const field of rangeFields) {
-        const fieldDef = manifest.fields.find((fieldDefinition) => fieldDefinition.name === field);
-        if (fieldDef) {
-          fieldTypes[field] = fieldDef.type;
-        }
-      }
-      
-      // Reuse scratch array for range filtering
-      arrayOperations.filterIndicesByRange(
-        candidateIndices,
-        items,
-        ranges!,
-        fieldTypes,
-        this.scratchRange,
-      );
-      candidateIndices = this.scratchRange;
-    }
+    candidateIndices = this.getRangeCandidates(candidateIndices, normalizedRanges, rangeMode);
 
     const total = candidateIndices.length;
 
@@ -538,4 +677,30 @@ function parseFacetKey(fieldType: FieldType, key: string): string | number | boo
     default:
       return key; // 'string' or 'date' (though date shouldn't be used here)
   }
+}
+
+/**
+ * Normalize facets parameter from single object or array to array format.
+ * @internal
+ */
+function normalizeFacets(
+  facets: LyraQuery['facets'],
+): Array<Record<string, FacetValue>> {
+  if (facets == null) {
+    return [];
+  }
+  return Array.isArray(facets) ? facets : [facets];
+}
+
+/**
+ * Normalize ranges parameter from single object or array to array format.
+ * @internal
+ */
+function normalizeRanges(
+  ranges: LyraQuery['ranges'],
+): Array<Record<string, RangeFilter>> {
+  if (ranges == null) {
+    return [];
+  }
+  return Array.isArray(ranges) ? ranges : [ranges];
 }

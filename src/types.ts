@@ -22,11 +22,34 @@ export type RangeFilter = {
 };
 
 /**
+ * Mode for combining multiple facet filter objects.
+ * - 'union': Items matching ANY of the facet objects (OR logic)
+ * - 'intersection': Items matching ALL of the facet objects (AND logic)
+ */
+export type FacetMode = 'union' | 'intersection';
+
+/**
+ * Mode for combining multiple range filter objects.
+ * - 'union': Items matching ANY of the range objects (OR logic)
+ * - 'intersection': Items matching ALL of the range objects (AND logic)
+ */
+export type RangeMode = 'union' | 'intersection';
+
+/**
  * Query parameters for executing facet and range filters against a bundle.
+ * 
+ * Facets and ranges can be provided as:
+ * - A single object (traditional format)
+ * - An array of objects (for multi-condition queries)
+ * 
+ * When using arrays, the `facetMode` and `rangeMode` parameters control
+ * how the conditions are combined (union/OR by default).
  */
 export interface LyraQuery {
-  facets?: Record<string, FacetValue>;
-  ranges?: Record<string, RangeFilter>;
+  facets?: Record<string, FacetValue> | Array<Record<string, FacetValue>>;
+  ranges?: Record<string, RangeFilter> | Array<Record<string, RangeFilter>>;
+  facetMode?: FacetMode;
+  rangeMode?: RangeMode;
   limit?: number;
   offset?: number;
   includeFacetCounts?: boolean;

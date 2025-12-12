@@ -208,8 +208,10 @@ Lyra's query model is simple and agent-friendly:
 
 ```ts
 interface LyraQuery {
-  facets?: Record<string, FacetValue>;
-  ranges?: Record<string, RangeFilter>;
+  facets?: Record<string, FacetValue> | Array<Record<string, FacetValue>>;
+  ranges?: Record<string, RangeFilter> | Array<Record<string, RangeFilter>>;
+  facetMode?: 'union' | 'intersection';
+  rangeMode?: 'union' | 'intersection';
   limit?: number;
   offset?: number;
   includeFacetCounts?: boolean;
@@ -225,6 +227,29 @@ interface LyraResult<Item = unknown> {
   facets?: FacetCounts; // optional facet counts for drilldown
   snapshot: LyraSnapshotInfo;
 }
+```
+
+**Array Queries:**
+
+Facets and ranges can be provided as arrays for multi-condition queries:
+
+```ts
+// Union (OR) - default: items matching ANY of these conditions
+bundle.query({
+  facets: [
+    { status: 'open', priority: 'high' },
+    { status: 'in_progress', priority: 'urgent' }
+  ]
+});
+
+// Intersection (AND): items matching ALL of these conditions
+bundle.query({
+  facets: [
+    { customer: 'ACME' },
+    { priority: 'high' }
+  ],
+  facetMode: 'intersection'
+});
 ```
 
 #### Range semantics
@@ -354,6 +379,7 @@ const response = await openai.chat.completions.create({
 - Use `buildOpenAiTool(bundle.describe(), options)` to auto-generate the tool schema from the manifest
 - The generated schema is derived from `capabilities.facets` and `capabilities.ranges`, ensuring it matches what Lyra actually supports
 - The agent can call the tool function with facet/range filters based on the manifest's capabilities
+- Supports array queries for complex multi-condition filtering (union/intersection modes)
 - Use `total` and `facets` in the result to help the agent refine or broaden queries
 - The `snapshot` metadata helps the agent understand data recency and identity
 

@@ -11,7 +11,10 @@
     "dueDate": "2025-11-25T17:00:00Z",
     "amount": 1500,
     "assignee": "alice@example.com",
-    "tags": ["performance", "urgent"]
+    "tags": [
+      "performance",
+      "urgent"
+    ]
   },
   {
     "id": "T-1002",
@@ -25,7 +28,10 @@
     "dueDate": "2025-11-24T12:00:00Z",
     "amount": 500,
     "assignee": "bob@example.com",
-    "tags": ["api", "backend"]
+    "tags": [
+      "api",
+      "backend"
+    ]
   },
   {
     "id": "TASK-2001",
@@ -37,7 +43,9 @@
     "createdAt": "2025-11-18T14:00:00Z",
     "dueDate": "2025-11-30T18:00:00Z",
     "assignee": "charlie@example.com",
-    "tags": ["documentation"]
+    "tags": [
+      "documentation"
+    ]
   },
   {
     "id": "EVT-3001",
@@ -49,7 +57,10 @@
     "eventDate": "2025-12-01T15:00:00Z",
     "attendees": 150,
     "organizer": "diana@example.com",
-    "tags": ["webinar", "launch"]
+    "tags": [
+      "webinar",
+      "launch"
+    ]
   },
   {
     "id": "T-1003",
@@ -63,7 +74,11 @@
     "dueDate": "2025-11-26T10:00:00Z",
     "amount": 2000,
     "assignee": "alice@example.com",
-    "tags": ["crash", "mobile", "urgent"]
+    "tags": [
+      "crash",
+      "mobile",
+      "urgent"
+    ]
   },
   {
     "id": "T-1004",
@@ -77,7 +92,9 @@
     "dueDate": "2025-11-20T17:00:00Z",
     "amount": 300,
     "assignee": "bob@example.com",
-    "tags": ["billing"]
+    "tags": [
+      "billing"
+    ]
   },
   {
     "id": "TASK-2002",
@@ -89,7 +106,9 @@
     "createdAt": "2025-11-22T11:00:00Z",
     "dueDate": "2025-11-23T16:00:00Z",
     "assignee": "charlie@example.com",
-    "tags": ["code-review"]
+    "tags": [
+      "code-review"
+    ]
   },
   {
     "id": "EVT-3002",
@@ -101,7 +120,8 @@
     "eventDate": "2025-11-22T09:00:00Z",
     "attendees": 12,
     "organizer": "diana@example.com",
-    "tags": ["standup"]
+    "tags": [
+      "standup"
+    ]
   }
 ]
-

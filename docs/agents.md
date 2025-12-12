@@ -36,6 +36,15 @@ const response = await openai.chat.completions.create({
   tools: [tool],
   // ...
 });
+
+// The agent can now make complex queries using array format:
+// bundle.query({
+//   facets: [
+//     { status: 'open', priority: 'high' },
+//     { status: 'in_progress', priority: 'urgent' }
+//   ],
+//   facetMode: 'union' // OR logic - matches items in either condition
+// });
 ```
 
 ## Schema Helpers
@@ -158,6 +167,13 @@ interface QuerySchemaOptions {
    * - 'single-or-array': Facet values can be either a single primitive or an array (default)
    */
   facetArrayMode?: 'single' | 'single-or-array';
+  /**
+   * Whether to include support for array query format (facets/ranges as arrays).
+   * When enabled, the schema allows both single objects and arrays of objects for facets and ranges,
+   * and includes facetMode/rangeMode parameters.
+   * Default: false (for backward compatibility)
+   */
+  includeArrayQueryFormat?: boolean;
 }
 ```
 
@@ -183,6 +199,47 @@ When `facetArrayMode` is `'single'`, facet fields are restricted to single primi
 ```
 
 Use `'single'` mode if your agent framework doesn't handle `anyOf` well, or if you want to enforce single-value queries only.
+
+**includeArrayQueryFormat Behavior:**
+
+When `includeArrayQueryFormat` is `false` (default), facets and ranges are represented as single objects:
+
+```json
+{
+  "facets": {
+    "type": "object",
+    "properties": { "status": { "type": "string" } }
+  }
+}
+```
+
+When `includeArrayQueryFormat` is `true`, facets and ranges support both single objects and arrays:
+
+```json
+{
+  "facets": {
+    "anyOf": [
+      {
+        "type": "object",
+        "properties": { "status": { "type": "string" } }
+      },
+      {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": { "status": { "type": "string" } }
+        }
+      }
+    ]
+  },
+  "facetMode": {
+    "type": "string",
+    "enum": ["union", "intersection"]
+  }
+}
+```
+
+Enable `includeArrayQueryFormat` when you want agents to use complex multi-condition queries.
 
 ## OpenAI Tool Adapter
 
@@ -357,11 +414,53 @@ When returning results to the agent, consider including guidance:
 - Use `facets` counts to show available filter options
 - Use `snapshot.builtAt` to indicate data freshness
 
+### Pattern 5: Array Queries for Complex Conditions
+
+Use array queries to enable agents to construct complex multi-condition filters:
+
+```ts
+async function queryTickets(args: LyraQuery): Promise<LyraResult<Ticket>> {
+  // Agent can now express: "Find tickets that are EITHER (high priority AND open) OR (urgent priority AND in_progress)"
+  const result = bundle.query(args);
+  return result;
+}
+
+// Example agent call with array queries:
+const result = await queryTickets({
+  facets: [
+    { priority: 'high', status: 'open' },
+    { priority: 'urgent', status: 'in_progress' }
+  ],
+  facetMode: 'union', // OR logic
+});
+```
+
+**Array Query Use Cases:**
+
+- **Complex filtering**: "Show me tickets from customer A or B, or any urgent tickets"
+- **Segmentation**: "Find items matching any of these specific combinations"
+- **Fallback logic**: "Try condition A, else condition B, else condition C"
+- **Multi-criteria search**: Agents can construct sophisticated queries with multiple conditions
+
+**Example with ranges:**
+
+```ts
+// "Find tickets created either in Q1 or Q4"
+const result = await queryTickets({
+  ranges: [
+    { createdAt: { min: Date.parse('2025-01-01'), max: Date.parse('2025-03-31') } },
+    { createdAt: { min: Date.parse('2025-10-01'), max: Date.parse('2025-12-31') } }
+  ],
+  rangeMode: 'union',
+});
+```
+
 ## Key Points
 
 - Use `buildOpenAiTool(bundle.describe(), options)` to auto-generate the tool schema from the manifest
 - The generated schema is derived from `capabilities.facets` and `capabilities.ranges`, ensuring it matches what Lyra actually supports
 - The agent can call the tool function with facet/range filters based on the manifest's capabilities
+- **Supports array queries** for complex multi-condition filtering with union (OR) and intersection (AND) modes
 - Use `total` and `facets` in the result to help the agent refine or broaden queries
 - The `snapshot` metadata helps the agent understand data recency and identity
 

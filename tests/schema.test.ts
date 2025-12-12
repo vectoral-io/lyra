@@ -347,5 +347,71 @@ describe('buildQuerySchema', () => {
     expect(rangeProperties.createdAt).toBeDefined();
     expect(rangeProperties.excludedRange).toBeUndefined();
   });
+
+  it('should support array query format when includeArrayQueryFormat is true', () => {
+    const schema = buildQuerySchema(testManifest, { includeArrayQueryFormat: true });
+    const properties = schema.properties as Record<string, unknown>;
+
+    // Check that facets and ranges support anyOf for single object or array
+    const facets = properties.facets as Record<string, unknown>;
+    expect(facets.anyOf).toBeDefined();
+    expect(Array.isArray(facets.anyOf)).toBe(true);
+
+    const ranges = properties.ranges as Record<string, unknown>;
+    expect(ranges.anyOf).toBeDefined();
+    expect(Array.isArray(ranges.anyOf)).toBe(true);
+
+    // Check that facetMode and rangeMode are included
+    expect(properties.facetMode).toBeDefined();
+    expect(properties.rangeMode).toBeDefined();
+
+    const facetMode = properties.facetMode as Record<string, unknown>;
+    expect(facetMode.type).toBe('string');
+    expect(facetMode.enum).toEqual(['union', 'intersection']);
+
+    const rangeMode = properties.rangeMode as Record<string, unknown>;
+    expect(rangeMode.type).toBe('string');
+    expect(rangeMode.enum).toEqual(['union', 'intersection']);
+  });
+
+  it('should not include facetMode/rangeMode when includeArrayQueryFormat is false', () => {
+    const schema = buildQuerySchema(testManifest);
+    const properties = schema.properties as Record<string, unknown>;
+
+    expect(properties.facetMode).toBeUndefined();
+    expect(properties.rangeMode).toBeUndefined();
+
+    // Facets and ranges should be simple objects, not anyOf
+    const facets = properties.facets as Record<string, unknown>;
+    expect(facets.type).toBe('object');
+    expect(facets.anyOf).toBeUndefined();
+
+    const ranges = properties.ranges as Record<string, unknown>;
+    expect(ranges.type).toBe('object');
+    expect(ranges.anyOf).toBeUndefined();
+  });
+
+  it('should include array schema for facets when includeArrayQueryFormat is true', () => {
+    const schema = buildQuerySchema(testManifest, { includeArrayQueryFormat: true });
+    const properties = schema.properties as Record<string, unknown>;
+    const facets = properties.facets as Record<string, unknown>;
+    const anyOf = facets.anyOf as Array<Record<string, unknown>>;
+
+    expect(anyOf).toHaveLength(2);
+
+    // First option: single object
+    const objectOption = anyOf[0];
+    expect(objectOption.type).toBe('object');
+    expect(objectOption.properties).toBeDefined();
+
+    // Second option: array of objects
+    const arrayOption = anyOf[1];
+    expect(arrayOption.type).toBe('array');
+    expect(arrayOption.items).toBeDefined();
+
+    const arrayItems = arrayOption.items as Record<string, unknown>;
+    expect(arrayItems.type).toBe('object');
+    expect(arrayItems.properties).toBeDefined();
+  });
 });
 

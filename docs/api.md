@@ -66,9 +66,20 @@ Execute a query against the bundle.
 **Example:**
 
 ```ts
+// Single object format (traditional)
 const result = bundle.query({
   facets: { status: 'open', priority: 'high' },
   ranges: { createdAt: { min: oneWeekAgo, max: now } },
+  limit: 50,
+  includeFacetCounts: true,
+});
+
+// Array format with union (OR logic)
+const result = bundle.query({
+  facets: [
+    { status: 'open', priority: 'high' },
+    { status: 'in_progress', priority: 'urgent' }
+  ],
   limit: 50,
   includeFacetCounts: true,
 });
@@ -239,8 +250,10 @@ Query parameters for executing facet and range filters against a bundle.
 
 ```ts
 interface LyraQuery {
-  facets?: Record<string, FacetValue>;
-  ranges?: Record<string, RangeFilter>;
+  facets?: Record<string, FacetValue> | Array<Record<string, FacetValue>>;
+  ranges?: Record<string, RangeFilter> | Array<Record<string, RangeFilter>>;
+  facetMode?: FacetMode;
+  rangeMode?: RangeMode;
   limit?: number;
   offset?: number;
   includeFacetCounts?: boolean;
@@ -249,11 +262,57 @@ interface LyraQuery {
 
 **Properties:**
 
-- `facets`: Object mapping facet field names to values. Values can be single primitives or arrays (array fields match if any element matches).
-- `ranges`: Object mapping range field names to range filters with `min` and/or `max` bounds.
+- `facets`: Facet filters, either:
+  - A single object mapping facet field names to values (traditional format)
+  - An array of facet objects for multi-condition queries
+  - Values can be single primitives or arrays (array fields match if any element matches)
+- `ranges`: Range filters, either:
+  - A single object mapping range field names to range filters with `min` and/or `max` bounds
+  - An array of range objects for multi-condition queries
+- `facetMode`: How to combine multiple facet objects (default: `'union'`):
+  - `'union'`: Items matching ANY of the facet objects (OR logic)
+  - `'intersection'`: Items matching ALL of the facet objects (AND logic)
+- `rangeMode`: How to combine multiple range objects (default: `'union'`):
+  - `'union'`: Items matching ANY of the range objects (OR logic)
+  - `'intersection'`: Items matching ALL of the range objects (AND logic)
 - `limit`: Maximum number of results to return.
 - `offset`: Number of results to skip (for pagination).
 - `includeFacetCounts`: If `true`, include facet counts in the response for all facet fields.
+
+**Array Query Examples:**
+
+```ts
+// Union (OR) - default: items matching ANY of these conditions
+bundle.query({
+  facets: [
+    { status: 'open', priority: 'high' },
+    { status: 'in_progress', priority: 'urgent' }
+  ]
+});
+
+// Intersection (AND): items matching ALL of these conditions
+bundle.query({
+  facets: [
+    { customer: 'ACME' },
+    { priority: 'high' }
+  ],
+  facetMode: 'intersection'
+});
+
+// Mixed modes: facets with union, ranges with intersection
+bundle.query({
+  facets: [
+    { status: 'open' },
+    { status: 'in_progress' }
+  ],
+  ranges: [
+    { createdAt: { min: Date.parse('2025-01-01') } },
+    { createdAt: { max: Date.now() } }
+  ],
+  facetMode: 'union',
+  rangeMode: 'intersection'
+});
+```
 
 ### `LyraResult<Item>`
 
@@ -365,6 +424,28 @@ type FieldType = 'string' | 'number' | 'boolean' | 'date';
 - `'number'`: Numeric values
 - `'boolean'`: Boolean values
 - `'date'`: Date values. If stored as numbers, they are interpreted as Unix timestamps in milliseconds. If stored as strings, they are parsed with `Date.parse()` and compared as timestamps. Items whose values cannot be parsed are effectively excluded from range results.
+
+### `FacetMode`
+
+Mode for combining multiple facet filter objects.
+
+```ts
+type FacetMode = 'union' | 'intersection';
+```
+
+- `'union'`: Items matching ANY of the facet objects (OR logic) - default
+- `'intersection'`: Items matching ALL of the facet objects (AND logic)
+
+### `RangeMode`
+
+Mode for combining multiple range filter objects.
+
+```ts
+type RangeMode = 'union' | 'intersection';
+```
+
+- `'union'`: Items matching ANY of the range objects (OR logic) - default
+- `'intersection'`: Items matching ALL of the range objects (AND logic)
 
 ### `FacetValue`
 
