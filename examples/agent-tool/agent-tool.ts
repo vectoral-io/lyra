@@ -64,7 +64,7 @@ async function main() {
   console.log('Query 1: High priority open items');
   console.log('-----------------------------------');
   const query1: LyraQuery = {
-    facets: {
+    equal: {
       priority: 'high',
       status: 'open',
     },
@@ -108,7 +108,7 @@ async function main() {
   console.log('Query 3: Items for Acme Corp with facet counts');
   console.log('-----------------------------------------------');
   const query3: LyraQuery = {
-    facets: {
+    equal: {
       customer: 'Acme Corp',
     },
     includeFacetCounts: true,
@@ -124,11 +124,11 @@ async function main() {
   }
   console.log('\n');
   
-  // Query 4: Combined facet + range
+  // Query 4: Combined equality + range
   console.log('Query 4: High priority tickets with amount >= 1000');
   console.log('---------------------------------------------------');
   const query4: LyraQuery = {
-    facets: {
+    equal: {
       type: 'ticket',
       priority: 'high',
     },
@@ -151,7 +151,7 @@ async function main() {
   console.log('=== Integration Notes ===');
   console.log('- The manifest describes all queryable fields and their capabilities');
   console.log('- Tool schema can be auto-generated from the manifest');
-  console.log('- Agents can use facet/range filters to query the bundle');
+  console.log('- Agents can use equality, inequality, null, and range filters to query the bundle');
   console.log('- Results include total count, items, and optional facet counts');
   console.log('- Snapshot metadata (datasetId, builtAt) is always included');
 }

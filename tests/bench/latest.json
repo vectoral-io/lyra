@@ -1,17 +1,53 @@
 {
-  "generatedAt": "2025-12-19T19:56:08.661Z",
+  "generatedAt": "2025-12-19T22:03:26.957Z",
   "results": {
     "100k / single facet (customerId)": {
       "iterations": 5000,
-      "meanMs": 0.028304383399999994
+      "meanMs": 0.027487050000000006
     },
     "100k / multi-facet + ranges + pagination": {
       "iterations": 5000,
-      "meanMs": 0.8194963832000002
+      "meanMs": 0.8341114834
     },
     "10k / full feature set": {
       "iterations": 5000,
-      "meanMs": 0.18024958320000006
+      "meanMs": 0.17395182499999992
+    },
+    "100k / canonical facet (baseline)": {
+      "iterations": 5000,
+      "meanMs": 0.026640083400000004
+    },
+    "100k / alias resolution": {
+      "iterations": 5000,
+      "meanMs": 0.026441733399999976
+    },
+    "100k / enrichAliases: true": {
+      "iterations": 5000,
+      "meanMs": 1.1155564249999999
+    },
+    "100k / enrichAliases: false": {
+      "iterations": 5000,
+      "meanMs": 0.059110675000000265
+    },
+    "100k / alias + enrichment": {
+      "iterations": 5000,
+      "meanMs": 1.1046279918000004
+    },
+    "100k / bundle creation with aliases": {
+      "iterations": 5000,
+      "meanMs": 8.217044766599999
+    },
+    "100k / utility: getAliasMap (deduplicated)": {
+      "iterations": 5000,
+      "meanMs": 0.00017572500000096624
+    },
+    "100k / utility: enrichResult": {
+      "iterations": 5000,
+      "meanMs": 0.00795063339999906
+    },
+    "100k / utility: enrichItems": {
+      "iterations": 5000,
+      "meanMs": 0.008396725000000152
     }
   }
 }

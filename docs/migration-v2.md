@@ -121,6 +121,31 @@ result.applied.isNotNull
 
 All v2 bundles use `manifest.version = "2.0.0"`. Existing v1 bundles will continue to work, but new bundles created with v2 will use version 2.0.0.
 
+### Step 6: Utility Methods for Alias Enrichment
+
+Instead of using `enrichAliases: true` in queries (which adds overhead), you can use utility methods for better performance:
+
+```ts
+// Query without enrichment overhead
+const result = bundle.query({ equal: { zone_id: 'Z-001' } });
+
+// Enrich on-demand using efficient batch lookup
+const enriched = bundle.enrichItems(result.items, ['zone_name', 'zone_label']);
+// enriched[0].zone_name = ['Zone A']
+// enriched[0].zone_label = ['First Floor']
+```
+
+**Available utility methods:**
+
+- `enrichItems(items, aliasFields)` - Enrich items array with aliases (most efficient)
+- `enrichResult(result, aliasFields)` - Enrich a full query result
+- `getAliasMap(aliasField, canonicalIds)` - Batch lookup for multiple IDs
+- `getAliasValues(aliasField, canonicalId)` - Get aliases for a single ID
+- `getAllAliases(aliasField)` - Get complete ID-to-aliases mapping
+- `getMultiAliasMap(aliasFields, canonicalIds)` - Batch lookup for multiple alias fields
+
+These methods automatically deduplicate IDs before lookup, providing optimal performance.
+
 ## New Features in v2
 
 ### Aliases
@@ -144,18 +169,13 @@ const result = bundle.query({
   equal: { zone_name: 'Zone A' }, // Auto-resolves to zone_id IN ['Z-001', 'Z-007']
 });
 
-// Enrich results with alias values (defaults to true if aliases are available)
+// Enrich results with alias values (opt-in, defaults to false)
 const enriched = bundle.query({
   equal: { zone_id: 'Z-001' },
-  // enrichAliases defaults to true, so this is optional
+  enrichAliases: true, // Must be explicit
 });
-// enriched.enrichedAliases[0] = { zone_name: ['Zone A'], zone_label: ['First Floor'] }
-
-// To disable enrichment, explicitly set to false
-const noEnrich = bundle.query({
-  equal: { zone_id: 'Z-001' },
-  enrichAliases: false,
-});
+// enriched.items[0].zone_name = ['Zone A']  // Items enriched directly
+// enriched.enrichedAliases[0] = { zone_name: ['Zone A'], zone_label: ['First Floor'] }  // Also available for compatibility
 ```
 
 ### Explicit Null Handling

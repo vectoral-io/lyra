@@ -23,19 +23,19 @@ async function main() {
 
   console.log(`Loaded bundle with ${bundle.describe().fields.length} fields\n`);
 
-  // Example 1: Simple facet query
-  console.log('=== Example 1: Facet Query ===');
-  const facetQuery: LyraQuery = {
-    facets: {
+  // Example 1: Simple equality query
+  console.log('=== Example 1: Equality Query ===');
+  const equalityQuery: LyraQuery = {
+    equal: {
       status: 'open',
       priority: 'high',
     },
     limit: 10,
   };
 
-  const facetResult: LyraResult<Ticket> = bundle.query(facetQuery);
-  console.log(`Found ${facetResult.total} tickets matching status=open AND priority=high`);
-  console.log('Items:', facetResult.items.map((t) => t.id));
+  const equalityResult: LyraResult<Ticket> = bundle.query(equalityQuery);
+  console.log(`Found ${equalityResult.total} tickets matching status=open AND priority=high`);
+  console.log('Items:', equalityResult.items.map((t) => t.id));
   console.log();
 
   // Example 2: Range query
@@ -58,7 +58,7 @@ async function main() {
   // Example 3: Query with facet counts
   console.log('=== Example 3: Query with Facet Counts ===');
   const countsQuery: LyraQuery = {
-    facets: {
+    equal: {
       customer: 'Acme Corp',
     },
     includeFacetCounts: true,
@@ -75,9 +75,9 @@ async function main() {
   console.log();
 
   // Example 4: Combined query
-  console.log('=== Example 4: Combined Facet + Range Query ===');
+  console.log('=== Example 4: Combined Equality + Range Query ===');
   const combinedQuery: LyraQuery = {
-    facets: {
+    equal: {
       status: 'open',
     },
     ranges: {

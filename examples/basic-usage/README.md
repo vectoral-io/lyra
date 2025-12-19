@@ -87,8 +87,8 @@ const config: SimpleBundleConfig<Ticket> = {
 - Configuring fields (facets and ranges)
 - Serializing a bundle to JSON
 - Loading a bundle from JSON
-- Facet queries (equality filters)
+- Equality queries (`equal` operator)
 - Range queries (numeric and date ranges)
 - Queries with facet counts
-- Combined facet + range queries
+- Combined equality + range queries
 

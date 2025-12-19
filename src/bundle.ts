@@ -394,20 +394,35 @@ export class LyraBundle<T extends Record<string, unknown>> {
     const start = Math.max(0, query.offset ?? 0);
     const end = query.limit != null ? start + Math.max(0, query.limit) : undefined;
     const paginatedIndices = candidates.slice(start, end);
-    const resultItems = paginatedIndices.map(idx => this.items[idx]);
+    let resultItems = paginatedIndices.map(idx => this.items[idx]);
     
-    // 9. Enrich with aliases (defaults to true if aliases are available)
+    // 9. Enrich with aliases (opt-in, defaults to false)
+    // Uses efficient enrichItems() method which deduplicates IDs for optimal performance
     let enrichedAliases: Array<Record<string, string[]>> | undefined;
     if (this.manifest.capabilities.aliases && this.manifest.capabilities.aliases.length > 0) {
-      // Default to true if not specified
-      const shouldEnrich = query.enrichAliases !== false;
+      // Opt-in: only enrich if explicitly requested
+      const shouldEnrich = query.enrichAliases === true || 
+        (Array.isArray(query.enrichAliases) && query.enrichAliases.length > 0);
       
       if (shouldEnrich) {
         const fieldsToEnrich = Array.isArray(query.enrichAliases)
           ? query.enrichAliases.filter(field => this.manifest.capabilities.aliases!.includes(field))
           : this.manifest.capabilities.aliases;
         
-        enrichedAliases = enrichResultsWithAliases(resultItems, fieldsToEnrich, this.manifest);
+        // Use efficient enrichItems() which deduplicates IDs before lookup
+        resultItems = this.enrichItems(resultItems, fieldsToEnrich);
+        
+        // Also populate enrichedAliases for backward compatibility
+        enrichedAliases = resultItems.map(item => {
+          const enriched: Record<string, string[]> = {};
+          for (const aliasField of fieldsToEnrich) {
+            const value = (item as any)[aliasField];
+            if (value != null) {
+              enriched[aliasField] = Array.isArray(value) ? value : [value];
+            }
+          }
+          return enriched;
+        });
       }
     }
     
@@ -495,6 +510,268 @@ export class LyraBundle<T extends Record<string, unknown>> {
     });
 
     return { field, values };
+  }
+
+  /**
+   * Get alias values for a single canonical ID.
+   * 
+   * @param aliasField - The alias field name (e.g., 'zone_name')
+   * @param canonicalId - The canonical ID value
+   * @returns Array of alias values, or empty array if not found
+   * 
+   * @example
+   * ```ts
+   * const zoneName = bundle.getAliasValues('zone_name', 'Z-001');
+   * // Returns: ['Zone A']
+   * ```
+   */
+  getAliasValues(aliasField: string, canonicalId: string | number): string[] {
+    const lookup = this.manifest.lookups?.[aliasField];
+    if (!lookup?.idToAliases) return [];
+    return lookup.idToAliases[String(canonicalId)] || [];
+  }
+
+  /**
+   * Get alias values for multiple canonical IDs in a single operation.
+   * More efficient than individual lookups when enriching multiple items.
+   * 
+   * @param aliasField - The alias field name (e.g., 'zone_name')
+   * @param canonicalIds - Array of canonical IDs to look up
+   * @returns Map from canonical ID to array of alias values
+   * 
+   * @example
+   * ```ts
+   * const result = bundle.query({ equal: { zone_id: ['Z-001', 'Z-002'] } });
+   * const uniqueIds = [...new Set(result.items.map(item => item.zone_id))];
+   * const aliasMap = bundle.getAliasMap('zone_name', uniqueIds);
+   * // Map back to items
+   * const enriched = result.items.map(item => ({
+   *   ...item,
+   *   zone_name: aliasMap.get(item.zone_id) || []
+   * }));
+   * ```
+   */
+  getAliasMap(aliasField: string, canonicalIds: (string | number)[]): Map<string | number, string[]> {
+    const lookup = this.manifest.lookups?.[aliasField];
+    if (!lookup?.idToAliases) {
+      return new Map();
+    }
+    
+    const map = new Map<string | number, string[]>();
+    for (const id of canonicalIds) {
+      if (id != null) {
+        const idKey = String(id);
+        const aliases = lookup.idToAliases[idKey];
+        if (aliases) {
+          map.set(id, aliases);
+        }
+      }
+    }
+    return map;
+  }
+
+  /**
+   * Get the complete ID-to-aliases mapping for an alias field.
+   * Useful for building dropdowns or caching all mappings.
+   * 
+   * @param aliasField - The alias field name
+   * @returns Map from canonical ID to array of alias values, or undefined if field not found
+   * 
+   * @example
+   * ```ts
+   * const allZones = bundle.getAllAliases('zone_name');
+   * // Returns: Map { 'Z-001' => ['Zone A'], 'Z-002' => ['Zone B'], ... }
+   * ```
+   */
+  getAllAliases(aliasField: string): Map<string, string[]> | undefined {
+    const lookup = this.manifest.lookups?.[aliasField];
+    if (!lookup?.idToAliases) return undefined;
+    
+    const map = new Map<string, string[]>();
+    for (const [id, aliases] of Object.entries(lookup.idToAliases)) {
+      map.set(id, aliases);
+    }
+    return map;
+  }
+
+  /**
+   * Get alias values for multiple fields and IDs in a single operation.
+   * Returns a nested structure: aliasField → canonicalId → aliases[]
+   * 
+   * @param aliasFields - Array of alias field names
+   * @param canonicalIds - Array of canonical IDs to look up
+   * @returns Map from alias field name to Map from ID to aliases
+   * 
+   * @example
+   * ```ts
+   * const uniqueIds = ['Z-001', 'Z-002'];
+   * const multiMap = bundle.getMultiAliasMap(['zone_name', 'zone_label'], uniqueIds);
+   * // multiMap.get('zone_name').get('Z-001') => ['Zone A']
+   * ```
+   */
+  getMultiAliasMap(
+    aliasFields: string[], 
+    canonicalIds: (string | number)[],
+  ): Map<string, Map<string | number, string[]>> {
+    const result = new Map<string, Map<string | number, string[]>>();
+    
+    for (const aliasField of aliasFields) {
+      result.set(aliasField, this.getAliasMap(aliasField, canonicalIds));
+    }
+    
+    return result;
+  }
+
+  /**
+   * Transform query results by adding enriched alias fields directly to items.
+   * More ergonomic than parallel arrays. Automatically deduplicates IDs for efficiency.
+   * 
+   * @param result - Query result
+   * @param aliasFields - Alias fields to enrich
+   * @returns New result with enriched items
+   * 
+   * @example
+   * ```ts
+   * const result = bundle.query({ equal: { zone_id: 'Z-001' } });
+   * const enriched = bundle.enrichResult(result, ['zone_name', 'zone_label']);
+   * // enriched.items[0] = { ...originalItem, zone_name: ['Zone A'], zone_label: ['First Floor'] }
+   * ```
+   */
+  enrichResult(
+    result: LyraResult<T>, 
+    aliasFields: string[],
+  ): LyraResult<T & Record<string, string[]>> {
+    // Extract unique IDs per alias field
+    const uniqueIdsByField = new Map<string, Set<string | number>>();
+    
+    for (const aliasField of aliasFields) {
+      const fieldDef = this.manifest.fields.find(fieldDef => fieldDef.name === aliasField);
+      if (fieldDef?.kind === 'alias' && fieldDef.aliasTarget) {
+        const ids = new Set<string | number>();
+        for (const item of result.items) {
+          const id = (item as any)[fieldDef.aliasTarget];
+          if (id != null) ids.add(id);
+        }
+        uniqueIdsByField.set(aliasField, ids);
+      }
+    }
+    
+    // Batch lookup aliases
+    const aliasMaps = new Map<string, Map<string | number, string[]>>();
+    for (const [aliasField, ids] of uniqueIdsByField) {
+      aliasMaps.set(aliasField, this.getAliasMap(aliasField, Array.from(ids)));
+    }
+    
+    // Enrich items
+    const enrichedItems = result.items.map(item => {
+      const enriched = { ...item } as any;
+      for (const [aliasField, aliasMap] of aliasMaps) {
+        const fieldDef = this.manifest.fields.find(fieldDef => fieldDef.name === aliasField);
+        if (fieldDef?.aliasTarget) {
+          const id = item[fieldDef.aliasTarget as keyof typeof item];
+          if (id != null) {
+            enriched[aliasField] = aliasMap.get(id as string | number) || [];
+          }
+        }
+      }
+      return enriched;
+    });
+    
+    return {
+      ...result,
+      items: enrichedItems,
+    };
+  }
+
+  /**
+   * Enrich items with alias values using efficient batch lookup.
+   * Automatically deduplicates IDs and batch looks up aliases for optimal performance.
+   * 
+   * This is a convenience method that simplifies the common pattern of enriching query results.
+   * It extracts unique IDs from items, batch looks up aliases, and maps them back.
+   * 
+   * @param items - Array of items to enrich
+   * @param aliasFields - Array of alias field names to enrich
+   * @returns Array of enriched items with alias fields added
+   * 
+   * @example
+   * ```ts
+   * const result = bundle.query({ equal: { zone_id: 'Z-001' } });
+   * const enriched = bundle.enrichItems(result.items, ['zone_name', 'zone_label']);
+   * // enriched[0] = { ...originalItem, zone_name: ['Zone A'], zone_label: ['First Floor'] }
+   * ```
+   */
+  enrichItems(
+    items: T[], 
+    aliasFields: string[],
+  ): Array<T & Record<string, string[]>> {
+    // Extract unique IDs per alias field
+    const uniqueIdsByField = new Map<string, Set<string | number>>();
+    
+    for (const aliasField of aliasFields) {
+      const fieldDef = this.manifest.fields.find(fieldDef => fieldDef.name === aliasField);
+      if (fieldDef?.kind === 'alias' && fieldDef.aliasTarget) {
+        const ids = new Set<string | number>();
+        for (const item of items) {
+          const id = (item as any)[fieldDef.aliasTarget];
+          if (id != null) {
+            // Handle array values (many-to-many)
+            if (Array.isArray(id)) {
+              for (const singleId of id) {
+                if (singleId != null) ids.add(singleId);
+              }
+            }
+            else {
+              ids.add(id);
+            }
+          }
+        }
+        uniqueIdsByField.set(aliasField, ids);
+      }
+    }
+    
+    // Batch lookup aliases
+    const aliasMaps = new Map<string, Map<string | number, string[]>>();
+    for (const [aliasField, ids] of uniqueIdsByField) {
+      aliasMaps.set(aliasField, this.getAliasMap(aliasField, Array.from(ids)));
+    }
+    
+    // Enrich items
+    const enrichedItems = items.map(item => {
+      const enriched = { ...item } as any;
+      for (const [aliasField, aliasMap] of aliasMaps) {
+        const fieldDef = this.manifest.fields.find(fieldDef => fieldDef.name === aliasField);
+        if (fieldDef?.aliasTarget) {
+          const id = item[fieldDef.aliasTarget as keyof typeof item];
+          if (id != null) {
+            // Handle array values (many-to-many)
+            if (Array.isArray(id)) {
+              const aliasSet = new Set<string>();
+              for (const singleId of id) {
+                if (singleId != null) {
+                  const aliases = aliasMap.get(singleId as string | number);
+                  if (aliases) {
+                    for (const alias of aliases) aliasSet.add(alias);
+                  }
+                }
+              }
+              if (aliasSet.size > 0) {
+                enriched[aliasField] = Array.from(aliasSet);
+              }
+            }
+            else {
+              const aliases = aliasMap.get(id as string | number);
+              if (aliases) {
+                enriched[aliasField] = aliases;
+              }
+            }
+          }
+        }
+      }
+      return enriched;
+    });
+    
+    return enrichedItems;
   }
 
   /**
@@ -858,54 +1135,4 @@ function filterByExclusions<T>(
   }
   
   return scratchArray;
-}
-
-/**
- * Enrich items with alias values via reverse lookup.
- * Always returns array of length === items.length.
- * @internal
- */
-function enrichResultsWithAliases<T>(
-  items: T[],
-  aliasFields: string[],
-  manifest: LyraManifest,
-): Array<Record<string, string[]>> {
-  const enriched: Array<Record<string, string[]>> = [];
-  
-  for (const item of items) {
-    const itemEnriched: Record<string, string[]> = {};
-    
-    for (const aliasField of aliasFields) {
-      const fieldDef = manifest.fields.find(fieldDef => fieldDef.name === aliasField);
-      if (!fieldDef || fieldDef.kind !== 'alias' || !fieldDef.aliasTarget) {
-        continue;
-      }
-      
-      const lookup = manifest.lookups?.[aliasField];
-      if (!lookup?.idToAliases) {
-        continue;
-      }
-      
-      const canonicalValue = (item as any)[fieldDef.aliasTarget];
-      const ids = Array.isArray(canonicalValue) ? canonicalValue : [canonicalValue];
-      
-      const aliases: string[] = [];
-      for (const id of ids) {
-        if (id !== null && id !== undefined) {
-          const aliasValues = lookup.idToAliases[String(id)];
-          if (aliasValues) {
-            aliases.push(...aliasValues);
-          }
-        }
-      }
-      
-      if (aliases.length > 0) {
-        itemEnriched[aliasField] = [...new Set(aliases)]; // Dedupe
-      }
-    }
-    
-    enriched.push(itemEnriched);
-  }
-  
-  return enriched;
 }

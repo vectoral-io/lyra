@@ -33,10 +33,24 @@ export async function getScenarios(): Promise<Scenario[]> {
     },
   };
 
-  const [bundle1k, bundle10k, bundle100k] = await Promise.all([
+  const configWithAliases = {
+    datasetId: 'tickets-bench-aliases',
+    fields: {
+      id: { kind: 'id' as const, type: 'string' as const },
+      customerId: { kind: 'facet' as const, type: 'string' as const },
+      customerName: { kind: 'alias' as const, type: 'string' as const, targetField: 'customerId' },
+      status: { kind: 'facet' as const, type: 'string' as const },
+      priority: { kind: 'facet' as const, type: 'string' as const },
+      createdAt: { kind: 'range' as const, type: 'date' as const },
+      slaHours: { kind: 'range' as const, type: 'number' as const },
+    },
+  };
+
+  const [bundle1k, bundle10k, bundle100k, bundle100kWithAliases] = await Promise.all([
     createBundle(data1k, config),
     createBundle(data10k, config),
     createBundle(data100k, config),
+    createBundle(data100k, configWithAliases),
   ]);
 
   return [
@@ -88,6 +102,115 @@ export async function getScenarios(): Promise<Scenario[]> {
           });
         },
       }),
+    },
+    {
+      name: '100k / canonical facet (baseline)',
+      setup: async () => ({
+        run: () => {
+          bundle100kWithAliases.query({
+            equal: { customerId: 'C-ACME' },
+            enrichAliases: false,
+          });
+        },
+      }),
+    },
+    {
+      name: '100k / alias resolution',
+      setup: async () => ({
+        run: () => {
+          bundle100kWithAliases.query({
+            equal: { customerName: 'Acme Corp' },
+            enrichAliases: false,
+          });
+        },
+      }),
+    },
+    {
+      name: '100k / enrichAliases: true',
+      setup: async () => ({
+        run: () => {
+          bundle100kWithAliases.query({
+            equal: { customerId: 'C-ACME' },
+            enrichAliases: true,
+          });
+        },
+      }),
+    },
+    {
+      name: '100k / enrichAliases: false',
+      setup: async () => ({
+        run: () => {
+          bundle100kWithAliases.query({
+            equal: { customerId: 'C-ACME' },
+            enrichAliases: false,
+          });
+        },
+      }),
+    },
+    {
+      name: '100k / alias + enrichment',
+      setup: async () => ({
+        run: () => {
+          bundle100kWithAliases.query({
+            equal: { customerName: 'Acme Corp' },
+            enrichAliases: true,
+          });
+        },
+      }),
+    },
+    {
+      name: '100k / bundle creation with aliases',
+      setup: async () => {
+        const data = generateTicketArray(100_000);
+        return {
+          run: async () => {
+            await createBundle(data, configWithAliases);
+          },
+        };
+      },
+    },
+    {
+      name: '100k / utility: getAliasMap (deduplicated)',
+      setup: async () => {
+        const result = await bundle100kWithAliases.query({
+          equal: { customerId: 'C-ACME' },
+          limit: 100,
+        });
+        const uniqueIds = [...new Set(result.items.map(item => item.customerId))];
+        return {
+          run: () => {
+            bundle100kWithAliases.getAliasMap('customerName', uniqueIds);
+          },
+        };
+      },
+    },
+    {
+      name: '100k / utility: enrichResult',
+      setup: async () => {
+        const result = await bundle100kWithAliases.query({
+          equal: { customerId: 'C-ACME' },
+          limit: 100,
+        });
+        return {
+          run: () => {
+            bundle100kWithAliases.enrichResult(result, ['customerName']);
+          },
+        };
+      },
+    },
+    {
+      name: '100k / utility: enrichItems',
+      setup: async () => {
+        const result = await bundle100kWithAliases.query({
+          equal: { customerId: 'C-ACME' },
+          limit: 100,
+        });
+        return {
+          run: () => {
+            bundle100kWithAliases.enrichItems(result.items, ['customerName']);
+          },
+        };
+      },
     },
   ];
 }

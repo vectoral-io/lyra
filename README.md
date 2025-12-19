@@ -221,7 +221,7 @@ interface LyraQuery {
   limit?: number;
   offset?: number;
   includeFacetCounts?: boolean;
-  enrichAliases?: boolean | string[];             // Enrich results with alias values (defaults to true if aliases available)
+  enrichAliases?: boolean | string[];             // Enrich results with alias values (defaults to false, opt-in)
 }
 
 interface LyraResult<Item = unknown> {
@@ -236,7 +236,7 @@ interface LyraResult<Item = unknown> {
   };
   facets?: FacetCounts; // optional facet counts for drilldown
   snapshot: LyraSnapshotInfo;
-  enrichedAliases?: Array<Record<string, string[]>>; // Parallel array of alias values
+  enrichedAliases?: Array<Record<string, string[]>>; // Parallel array of alias values (backward compatibility; items are enriched directly when enrichAliases: true)
 }
 ```
 
@@ -276,6 +276,42 @@ bundle.query({
   ranges: { createdAt: { min: oneWeekAgo, max: now } }
 });
 ```
+
+#### Alias enrichment
+
+When `enrichAliases: true`, items are enriched directly with alias values:
+
+```ts
+const result = bundle.query({
+  equal: { zone_id: 'Z-001' },
+  enrichAliases: true, // Opt-in: defaults to false
+});
+
+// Items are enriched directly
+result.items[0].zone_name; // ['Zone A']
+result.items[0].zone_label; // ['First Floor']
+
+// enrichedAliases is also populated for backward compatibility
+result.enrichedAliases?.[0]; // { zone_name: ['Zone A'], zone_label: ['First Floor'] }
+```
+
+**Utility methods for on-demand enrichment:**
+
+For better performance, query without enrichment and enrich on-demand:
+
+```ts
+// Query without enrichment overhead
+const result = bundle.query({ equal: { zone_id: 'Z-001' } });
+
+// Enrich on-demand using efficient batch lookup
+const enriched = bundle.enrichItems(result.items, ['zone_name', 'zone_label']);
+// enriched[0].zone_name = ['Zone A']
+```
+
+Other utility methods:
+- `getAliasValues(aliasField, canonicalId)` - Get aliases for a single ID
+- `getAliasMap(aliasField, canonicalIds)` - Batch lookup for multiple IDs
+- `enrichResult(result, aliasFields)` - Enrich a full query result
 
 #### Range semantics
 
@@ -484,6 +520,13 @@ Lyra's v2 API is intentionally small and stable.
   - `snapshot(): LyraSnapshotInfo` - Get snapshot metadata
   - `toJSON(): LyraBundleJSON<T>` - Serialize to JSON
   - `static load<TItem>(raw): LyraBundle<TItem>` - Load a bundle from JSON
+  - **Alias utility methods** (v2):
+    - `getAliasValues(aliasField, canonicalId): string[]` - Get alias values for a single ID
+    - `getAliasMap(aliasField, canonicalIds): Map<id, string[]>` - Batch lookup alias values
+    - `getAllAliases(aliasField): Map<string, string[]> | undefined` - Get complete ID-to-aliases mapping
+    - `getMultiAliasMap(aliasFields, canonicalIds): Map<field, Map<id, string[]>>` - Batch lookup for multiple alias fields
+    - `enrichResult(result, aliasFields): LyraResult<T & Record<string, string[]>>` - Enrich a query result with aliases
+    - `enrichItems(items, aliasFields): Array<T & Record<string, string[]>>` - Enrich items array with aliases
 
 ### Schema Helpers
 

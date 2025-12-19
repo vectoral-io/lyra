@@ -92,9 +92,9 @@ Get facet summary for a single field (dashboard-friendly).
 **Parameters:**
 
 - `field`: The facet field name to summarize
-- `options`: Optional filters to apply before counting:
-  - `facets?: LyraQuery['facets']` - Facet filters
-  - `ranges?: LyraQuery['ranges']` - Range filters
+- `options`: Optional filters to apply before counting (v2 syntax):
+  - `equal?: Record<string, Scalar | Scalar[]>` - Equality filters
+  - `ranges?: Record<string, RangeBound>` - Range filters
 
 **Returns:**
 
@@ -108,7 +108,7 @@ const summary = bundle.getFacetSummary('status');
 
 // Get status values under current filters
 const filteredSummary = bundle.getFacetSummary('status', {
-  facets: { customerId: 'C-ACME' },
+  equal: { customerId: 'C-ACME' },
 });
 ```
 
@@ -119,6 +119,135 @@ const filteredSummary = bundle.getFacetSummary('status', {
 - `null`/`undefined` values are excluded from counts
 - Arrays contribute one count per element (including duplicates)
 - Values are returned in sorted order (numbers ascending, booleans false-then-true, strings lexicographic)
+
+##### Alias Utility Methods (v2)
+
+Methods for working with alias fields and enriching results with human-readable values.
+
+##### `getAliasValues(aliasField: string, canonicalId: string | number): string[]`
+
+Get alias values for a single canonical ID.
+
+**Parameters:**
+
+- `aliasField`: The alias field name
+- `canonicalId`: The canonical ID to look up
+
+**Returns:**
+
+Array of alias values for the given ID (empty array if not found).
+
+**Example:**
+
+```ts
+const aliases = bundle.getAliasValues('zone_name', 'Z-001');
+// ['Zone A']
+```
+
+##### `getAliasMap(aliasField: string, canonicalIds: (string | number)[]): Map<string | number, string[]>`
+
+Batch lookup alias values for multiple canonical IDs. Efficiently deduplicates IDs before lookup.
+
+**Parameters:**
+
+- `aliasField`: The alias field name
+- `canonicalIds`: Array of canonical IDs to look up
+
+**Returns:**
+
+Map from canonical ID to array of alias values.
+
+**Example:**
+
+```ts
+const aliasMap = bundle.getAliasMap('zone_name', ['Z-001', 'Z-002', 'Z-001']);
+// Map { 'Z-001' => ['Zone A'], 'Z-002' => ['Zone B'] }
+```
+
+##### `getAllAliases(aliasField: string): Map<string, string[]> | undefined`
+
+Get the complete ID-to-aliases mapping for an alias field.
+
+**Parameters:**
+
+- `aliasField`: The alias field name
+
+**Returns:**
+
+Map from canonical ID to array of alias values, or `undefined` if the alias field doesn't exist.
+
+**Example:**
+
+```ts
+const allAliases = bundle.getAllAliases('zone_name');
+// Map { 'Z-001' => ['Zone A'], 'Z-002' => ['Zone B'], ... }
+```
+
+##### `getMultiAliasMap(aliasFields: string[], canonicalIds: (string | number)[]): Map<string, Map<string | number, string[]>>`
+
+Get alias maps for multiple alias fields in a single call.
+
+**Parameters:**
+
+- `aliasFields`: Array of alias field names
+- `canonicalIds`: Array of canonical IDs to look up
+
+**Returns:**
+
+Map from alias field name to Map of canonical ID to alias values.
+
+**Example:**
+
+```ts
+const multiMap = bundle.getMultiAliasMap(['zone_name', 'zone_label'], ['Z-001', 'Z-002']);
+// Map {
+//   'zone_name' => Map { 'Z-001' => ['Zone A'], 'Z-002' => ['Zone B'] },
+//   'zone_label' => Map { 'Z-001' => ['First Floor'], 'Z-002' => ['Second Floor'] }
+// }
+```
+
+##### `enrichResult(result: LyraResult<T>, aliasFields: string[]): LyraResult<T & Record<string, string[]>>`
+
+Enrich a query result with alias values. Returns a new result object with enriched items.
+
+**Parameters:**
+
+- `result`: The query result to enrich
+- `aliasFields`: Array of alias field names to enrich
+
+**Returns:**
+
+New `LyraResult` with items enriched with alias fields.
+
+**Example:**
+
+```ts
+const result = bundle.query({ equal: { zone_id: 'Z-001' } });
+const enriched = bundle.enrichResult(result, ['zone_name', 'zone_label']);
+// enriched.items[0].zone_name = ['Zone A']
+```
+
+##### `enrichItems(items: T[], aliasFields: string[]): Array<T & Record<string, string[]>>`
+
+Enrich an array of items with alias values using efficient batch lookup. Automatically deduplicates IDs for optimal performance.
+
+**Parameters:**
+
+- `items`: Array of items to enrich
+- `aliasFields`: Array of alias field names to enrich
+
+**Returns:**
+
+Array of enriched items with alias fields added.
+
+**Example:**
+
+```ts
+const result = bundle.query({ equal: { zone_id: 'Z-001' } });
+const enriched = bundle.enrichItems(result.items, ['zone_name', 'zone_label']);
+// enriched[0].zone_name = ['Zone A']
+// enriched[0].zone_label = ['First Floor']
+```
 
 ##### `describe(): LyraManifest`
 
@@ -207,12 +336,16 @@ interface SimpleBundleConfig<TItem extends Record<string, unknown>> {
   datasetId: string;
   /** Explicit ID field name. If omitted, will auto-detect from 'id'/'Id'/'ID'. */
   id?: FieldName<TItem>;
-  /** Fields to index as facets (for equality filtering). */
+  /** Fields to index as facets (for equality filtering). Prefer `equal` for v2. */
   facets?: FieldName<TItem>[];
+  /** Fields to index as facets (v2, preferred over `facets`). */
+  equal?: FieldName<TItem>[];
   /** Fields to index as ranges (for numeric/date range filtering). */
   ranges?: FieldName<TItem>[];
   /** Fields to include in manifest as meta (non-indexed, schema-visible). */
   meta?: FieldName<TItem>[];
+  /** Alias fields mapping alias name to canonical field (v2). */
+  aliases?: Record<string, FieldName<TItem>>;
   /** How aggressively to infer field types. Default: 'runtime'. */
   inferTypes?: 'none' | 'runtime';
   /** Whether to auto-add remaining simple fields as meta. Default: true. */
@@ -224,9 +357,11 @@ interface SimpleBundleConfig<TItem extends Record<string, unknown>> {
 
 - `datasetId`: Logical identifier for the dataset
 - `id`: Optional explicit ID field name. If omitted, will auto-detect from common patterns ('id', 'Id', 'ID')
-- `facets`: Array of field names to index as facets (for equality filtering)
+- `facets`: Array of field names to index as facets (for equality filtering). Kept for backward compatibility; prefer `equal` for v2.
+- `equal`: Array of field names to index as facets (v2, preferred over `facets`)
 - `ranges`: Array of field names to index as ranges (for numeric/date range filtering). Must be numeric or date values.
 - `meta`: Array of field names to include in manifest as meta (non-indexed, schema-visible)
+- `aliases`: Object mapping alias field names to canonical field names (v2). Lookup tables are auto-generated from item data.
 - `inferTypes`: How aggressively to infer field types:
   - `'runtime'`: Inspect actual values in the data (default)
   - `'none'`: Default all fields to 'string' type
@@ -246,97 +381,95 @@ const bundle = await createBundle(tickets, {
 
 ### `LyraQuery`
 
-Query parameters for executing facet and range filters against a bundle.
+Query parameters for executing filters against a bundle (v2).
 
 ```ts
 interface LyraQuery {
-  facets?: Record<string, FacetValue> | Array<Record<string, FacetValue>>;
-  ranges?: Record<string, RangeFilter> | Array<Record<string, RangeFilter>>;
-  facetMode?: FacetMode;
-  rangeMode?: RangeMode;
+  equal?: Record<string, Scalar | Scalar[]>;      // Equality filters (IN semantics with arrays)
+  notEqual?: Record<string, Scalar | Scalar[]>;   // Inequality filters (NOT IN with arrays)
+  ranges?: Record<string, RangeBound>;            // Range filters
+  isNull?: string[];                              // Fields that must be NULL
+  isNotNull?: string[];                           // Fields that must NOT be NULL
   limit?: number;
   offset?: number;
   includeFacetCounts?: boolean;
+  enrichAliases?: boolean | string[];              // Enrich results with alias values (defaults to false, opt-in)
 }
 ```
 
 **Properties:**
 
-- `facets`: Facet filters, either:
-  - A single object mapping facet field names to values (traditional format)
-  - An array of facet objects for multi-condition queries
-  - Values can be single primitives or arrays (array fields match if any element matches)
-- `ranges`: Range filters, either:
-  - A single object mapping range field names to range filters with `min` and/or `max` bounds
-  - An array of range objects for multi-condition queries
-- `facetMode`: How to combine multiple facet objects (default: `'union'`):
-  - `'union'`: Items matching ANY of the facet objects (OR logic)
-  - `'intersection'`: Items matching ALL of the facet objects (AND logic)
-- `rangeMode`: How to combine multiple range objects (default: `'union'`):
-  - `'union'`: Items matching ANY of the range objects (OR logic)
-  - `'intersection'`: Items matching ALL of the range objects (AND logic)
+- `equal`: Equality filters. Single scalar value = exact match, array = IN semantics.
+- `notEqual`: Inequality filters. Single scalar value = `!= x`, array = NOT IN semantics.
+- `ranges`: Range filters for numeric/date fields. `RangeBound` has `min` and/or `max` (inclusive).
+- `isNull`: Array of field names that must be NULL.
+- `isNotNull`: Array of field names that must NOT be NULL.
 - `limit`: Maximum number of results to return.
 - `offset`: Number of results to skip (for pagination).
 - `includeFacetCounts`: If `true`, include facet counts in the response for all facet fields.
+- `enrichAliases`: Enrich results with alias values. `true` = all aliases, `string[]` = specific alias fields. Defaults to `false` (opt-in).
 
-**Array Query Examples:**
+**Query Examples:**
 
 ```ts
-// Union (OR) - default: items matching ANY of these conditions
+// Simple equality
 bundle.query({
-  facets: [
-    { status: 'open', priority: 'high' },
-    { status: 'in_progress', priority: 'urgent' }
-  ]
+  equal: { status: 'open', priority: 'high' }
 });
 
-// Intersection (AND): items matching ALL of these conditions
+// IN semantics with arrays
 bundle.query({
-  facets: [
-    { customer: 'ACME' },
-    { priority: 'high' }
-  ],
-  facetMode: 'intersection'
+  equal: { priority: ['high', 'urgent'] }
 });
 
-// Mixed modes: facets with union, ranges with intersection
+// Null checks
 bundle.query({
-  facets: [
-    { status: 'open' },
-    { status: 'in_progress' }
-  ],
-  ranges: [
-    { createdAt: { min: Date.parse('2025-01-01') } },
-    { createdAt: { max: Date.now() } }
-  ],
-  facetMode: 'union',
-  rangeMode: 'intersection'
+  isNull: ['category'],
+  isNotNull: ['status']
+});
+
+// Exclusion filters
+bundle.query({
+  notEqual: { status: ['closed', 'cancelled'] }
+});
+
+// Mixed operators (all intersected - AND logic)
+bundle.query({
+  equal: { customer: 'ACME' },
+  notEqual: { priority: 'low' },
+  isNotNull: ['status'],
+  ranges: { createdAt: { min: oneWeekAgo, max: now } }
 });
 ```
 
 ### `LyraResult<Item>`
 
-Structured result of executing a query against a bundle.
+Structured result of executing a query against a bundle (v2).
 
 ```ts
 interface LyraResult<Item = unknown> {
   items: Item[];
   total: number;
   applied: {
-    facets?: LyraQuery['facets'];
+    equal?: LyraQuery['equal'];
+    notEqual?: LyraQuery['notEqual'];
     ranges?: LyraQuery['ranges'];
+    isNull?: LyraQuery['isNull'];
+    isNotNull?: LyraQuery['isNotNull'];
   };
   facets?: FacetCounts;
   snapshot: LyraSnapshotInfo;
+  enrichedAliases?: Array<Record<string, string[]>>; // Parallel array (backward compatibility; items enriched directly when enrichAliases: true)
 }
 ```
 
 **Properties:**
 
-- `items`: Array of matching items (paginated according to `limit` and `offset`).
+- `items`: Array of matching items (paginated according to `limit` and `offset`). When `enrichAliases: true`, items are enriched directly with alias fields.
 - `total`: Total number of matching items (before pagination).
 - `applied`: The query that was applied (normalized).
 - `facets`: Optional facet counts for drilldown UI (only present if `includeFacetCounts: true`).
+- `enrichedAliases`: Optional parallel array of alias values (backward compatibility). When `enrichAliases: true`, items are enriched directly, and this array is also populated.
 - `snapshot`: Snapshot metadata (datasetId, builtAt, indexVersion).
 
 ### `LyraManifest`

@@ -180,23 +180,26 @@ describe('LyraBundle - V2 Aliases', () => {
 
     const bundle = await createBundle(items, config);
 
-    // Explicitly set to true (should work the same as default)
+    // Explicitly set to true - items are enriched directly
     const result = bundle.query({
       equal: { zone_id: 'Z-001' },
       enrichAliases: true,
     });
 
+    // Items are enriched directly
+    expect(result.items[0].zone_name).toEqual(['Zone A']);
+    expect(result.items[1].zone_name).toEqual(['Zone A']);
+    
+    // enrichedAliases is also populated for backward compatibility
     expect(result.enrichedAliases).toBeDefined();
     expect(result.enrichedAliases!.length).toBe(result.items.length);
-
-    for (const enriched of result.enrichedAliases!) {
-      expect(enriched.zone_name).toEqual(['Zone A']);
-    }
+    expect(result.enrichedAliases![0].zone_name).toEqual(['Zone A']);
   });
 
-  it('enriches results with specific alias fields only', async () => {
+  it('enriches results with all available aliases when enrichAliases: true', async () => {
     const items = [
       { id: '1', zone_id: 'Z-001', zone_name: 'Zone A', zone_label: 'First Floor' },
+      { id: '2', zone_id: 'Z-002', zone_name: 'Zone B', zone_label: 'Second Floor' },
     ];
 
     const config: SimpleBundleConfig<typeof items[0]> = {
@@ -210,13 +213,56 @@ describe('LyraBundle - V2 Aliases', () => {
 
     const bundle = await createBundle(items, config);
 
+    // enrichAliases: true should enrich ALL available aliases
+    const result = bundle.query({
+      equal: { zone_id: 'Z-001' },
+      enrichAliases: true,
+    });
+
+    // Both alias fields should be enriched
+    expect(result.items[0].zone_name).toEqual(['Zone A']);
+    expect(result.items[0].zone_label).toEqual(['First Floor']);
+    
+    // enrichedAliases should contain all aliases
+    expect(result.enrichedAliases).toBeDefined();
+    expect(result.enrichedAliases![0].zone_name).toEqual(['Zone A']);
+    expect(result.enrichedAliases![0].zone_label).toEqual(['First Floor']);
+  });
+
+  it('enriches results with specific alias fields only', async () => {
+    // Items with alias fields for lookup table generation
+    const items = [
+      { id: '1', zone_id: 'Z-001', zone_name: 'Zone A', zone_label: 'First Floor' },
+      { id: '2', zone_id: 'Z-002', zone_name: 'Zone B', zone_label: 'Second Floor' },
+    ];
+
+    const config: SimpleBundleConfig<typeof items[0]> = {
+      datasetId: 'test',
+      facets: ['zone_id'],
+      aliases: {
+        zone_name: 'zone_id',
+        zone_label: 'zone_id',
+      },
+    };
+
+    const bundle = await createBundle(items, config);
+
+    // Query and enrich only zone_name
     const result = bundle.query({
       equal: { zone_id: 'Z-001' },
       enrichAliases: ['zone_name'], // Only enrich zone_name
     });
 
+    // Items are enriched directly with only requested alias field
+    expect(result.items[0].zone_name).toEqual(['Zone A']);
+    // zone_label exists in original item but wasn't enriched, so it's still the original value
+    expect(result.items[0].zone_label).toBe('First Floor');
+    
+    // enrichedAliases only contains requested fields
     expect(result.enrichedAliases).toBeDefined();
     expect(result.enrichedAliases![0].zone_name).toBeDefined();
+    expect(result.enrichedAliases![0].zone_name).toEqual(['Zone A']);
+    // zone_label should not be in enrichedAliases since it wasn't requested
     expect(result.enrichedAliases![0].zone_label).toBeUndefined();
   });
 
@@ -293,7 +339,7 @@ describe('LyraBundle - V2 Aliases', () => {
     expect(result.total).toBe(1);
   });
 
-  it('defaults enrichAliases to true when aliases are available', async () => {
+  it('defaults enrichAliases to false (opt-in)', async () => {
     const items = [
       { id: '1', zone_id: 'Z-001', zone_name: 'Zone A' },
       { id: '2', zone_id: 'Z-002', zone_name: 'Zone B' },
@@ -309,22 +355,113 @@ describe('LyraBundle - V2 Aliases', () => {
 
     const bundle = await createBundle(items, config);
 
-    // Query without specifying enrichAliases (should default to true)
+    // Query without specifying enrichAliases (should default to false)
     const result = bundle.query({
       equal: { zone_id: 'Z-001' },
     });
 
-    expect(result.enrichedAliases).toBeDefined();
-    expect(result.enrichedAliases!.length).toBe(result.items.length);
-    expect(result.enrichedAliases![0].zone_name).toEqual(['Zone A']);
+    expect(result.enrichedAliases).toBeUndefined();
 
-    // Explicitly set to false should disable enrichment
-    const resultNoEnrich = bundle.query({
+    // Explicitly set to true should enable enrichment
+    const resultEnriched = bundle.query({
       equal: { zone_id: 'Z-001' },
-      enrichAliases: false,
+      enrichAliases: true,
     });
 
-    expect(resultNoEnrich.enrichedAliases).toBeUndefined();
+    expect(resultEnriched.enrichedAliases).toBeDefined();
+    expect(resultEnriched.enrichedAliases!.length).toBe(resultEnriched.items.length);
+    expect(resultEnriched.enrichedAliases![0].zone_name).toEqual(['Zone A']);
+  });
+
+  it('enrichItems utility method enriches items efficiently', async () => {
+    const items = [
+      { id: '1', zone_id: 'Z-001', zone_name: 'Zone A' },
+      { id: '2', zone_id: 'Z-001', zone_name: 'Zone A' },
+      { id: '3', zone_id: 'Z-002', zone_name: 'Zone B' },
+    ];
+
+    const config: SimpleBundleConfig<typeof items[0]> = {
+      datasetId: 'test',
+      facets: ['zone_id'],
+      aliases: {
+        zone_name: 'zone_id',
+      },
+    };
+
+    const bundle = await createBundle(items, config);
+
+    // Query without enrichment
+    const result = bundle.query({
+      equal: { zone_id: 'Z-001' },
+    });
+
+    // Use enrichItems utility
+    const enriched = bundle.enrichItems(result.items, ['zone_name']);
+
+    expect(enriched.length).toBe(2);
+    expect(enriched[0].zone_name).toEqual(['Zone A']);
+    expect(enriched[1].zone_name).toEqual(['Zone A']);
+    expect(enriched[0].id).toBe('1'); // Original fields preserved
+  });
+
+  it('enrichItems handles multiple alias fields', async () => {
+    const items = [
+      { id: '1', zone_id: 'Z-001', zone_name: 'Zone A', zone_label: 'First Floor' },
+      { id: '2', zone_id: 'Z-002', zone_name: 'Zone B', zone_label: 'Second Floor' },
+    ];
+
+    const config: SimpleBundleConfig<typeof items[0]> = {
+      datasetId: 'test',
+      facets: ['zone_id'],
+      aliases: {
+        zone_name: 'zone_id',
+        zone_label: 'zone_id',
+      },
+    };
+
+    const bundle = await createBundle(items, config);
+
+    const result = bundle.query({
+      equal: { zone_id: ['Z-001', 'Z-002'] },
+    });
+
+    const enriched = bundle.enrichItems(result.items, ['zone_name', 'zone_label']);
+
+    expect(enriched.length).toBe(2);
+    expect(enriched[0].zone_name).toEqual(['Zone A']);
+    expect(enriched[0].zone_label).toEqual(['First Floor']);
+    expect(enriched[1].zone_name).toEqual(['Zone B']);
+    expect(enriched[1].zone_label).toEqual(['Second Floor']);
+  });
+
+  it('enrichItems deduplicates IDs efficiently', async () => {
+    const items = Array.from({ length: 100 }, (_, i) => ({
+      id: `item-${i}`,
+      zone_id: i % 10 === 0 ? 'Z-001' : 'Z-002', // Only 2 unique IDs
+      zone_name: i % 10 === 0 ? 'Zone A' : 'Zone B',
+    }));
+
+    const config: SimpleBundleConfig<typeof items[0]> = {
+      datasetId: 'test',
+      facets: ['zone_id'],
+      aliases: {
+        zone_name: 'zone_id',
+      },
+    };
+
+    const bundle = await createBundle(items, config);
+
+    const result = bundle.query({
+      equal: { zone_id: ['Z-001', 'Z-002'] },
+    });
+
+    // Should only do 2 lookups (for 2 unique IDs) even though we have 100 items
+    const enriched = bundle.enrichItems(result.items, ['zone_name']);
+
+    expect(enriched.length).toBe(100);
+    expect(enriched[0].zone_name).toEqual(['Zone A']);
+    expect(enriched[10].zone_name).toEqual(['Zone A']);
+    expect(enriched[1].zone_name).toEqual(['Zone B']);
   });
 });
 

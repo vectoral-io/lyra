@@ -37,7 +37,7 @@ bun run examples/agent-tool/agent-tool.ts
 - Loading a bundle at runtime
 - Generating tool schemas from the bundle manifest
 - Exposing a query function that agents can call
-- Sample queries showing facet filters, range filters, and facet counts
+- Sample queries showing equality filters (`equal`), range filters, and facet counts
 - How the manifest describes queryable fields and capabilities
 
 ## Agent Tool Integration Pattern
@@ -62,7 +62,7 @@ The example shows how you would integrate a Lyra bundle as a tool for LLM agents
    - Pass the generated schema to your agent framework
 
 5. **Agent queries the bundle**
-   - Agent calls the tool function with facet/range filters
+   - Agent calls the tool function with equality, inequality, null, and range filters
    - Results include matching items, total count, and snapshot metadata
    - Facet counts enable drilldown UI patterns
 
