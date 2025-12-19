@@ -2,21 +2,19 @@ import type {
   AnyBundleConfig,
   CreateBundleConfig,
   FacetCounts,
-  FacetMode,
   FacetPostingLists,
-  FacetValue,
   FieldType,
   LyraBundleJSON,
   LyraManifest,
   LyraQuery,
   LyraResult,
   LyraSnapshotInfo,
-  RangeFilter,
-  RangeMode,
+  RangeBound,
+  Scalar,
   SimpleBundleConfig,
 } from './types';
 import * as arrayOperations from './utils/array-operations';
-import { buildFacetIndex, buildManifest } from './utils/builders';
+import { buildFacetIndex, buildLookupTablesFromData, buildManifest } from './utils/builders';
 import { fromSimpleConfig } from './utils/type-inference';
 
 
@@ -54,9 +52,6 @@ export async function createBundle<T extends Record<string, unknown>>(
 
   return LyraBundle.create(items, explicitConfig);
 }
-
-// Components
-// ==============================
 
 /**
  * Immutable bundle of items plus a manifest that describes fields and capabilities.
@@ -110,8 +105,29 @@ export class LyraBundle<T extends Record<string, unknown>> {
     }
 
     const manifest = buildManifest(config);
-    const facetIndex = buildFacetIndex(items, manifest);
-    return new LyraBundle(items, manifest, facetIndex);
+    
+    // Auto-generate lookup tables if aliases are present
+    let finalManifest = manifest;
+    if (manifest.capabilities.aliases && manifest.capabilities.aliases.length > 0) {
+      // Extract alias mappings from config
+      const aliasMappings: Record<string, string> = {};
+      for (const field of manifest.fields) {
+        if (field.kind === 'alias' && field.aliasTarget) {
+          aliasMappings[field.name] = field.aliasTarget;
+        }
+      }
+      
+      if (Object.keys(aliasMappings).length > 0) {
+        const lookups = buildLookupTablesFromData(items, aliasMappings, manifest);
+        finalManifest = {
+          ...manifest,
+          lookups,
+        };
+      }
+    }
+    
+    const facetIndex = buildFacetIndex(items, finalManifest);
+    return new LyraBundle(items, finalManifest, facetIndex);
   }
 
   /**
@@ -119,8 +135,11 @@ export class LyraBundle<T extends Record<string, unknown>> {
    * @internal
    */
   private emptyResult(applied: {
-    facets?: LyraQuery['facets'];
+    equal?: LyraQuery['equal'];
+    notEqual?: LyraQuery['notEqual'];
     ranges?: LyraQuery['ranges'];
+    isNull?: LyraQuery['isNull'];
+    isNotNull?: LyraQuery['isNotNull'];
   }): LyraResult<T> {
     return {
       items: [],
@@ -128,23 +147,24 @@ export class LyraBundle<T extends Record<string, unknown>> {
       applied,
       facets: undefined,
       snapshot: this.snapshot(),
+      enrichedAliases: [],
     };
   }
 
   /**
-   * Compute candidate indices for a single facet object.
-   * All fields within the facet object are intersected (AND logic).
+   * Compute candidate indices from equal filters (v2).
+   * Treats equal filters as facet-style lookups.
    * @internal
    */
-  private getSingleFacetCandidates(facetObj: Record<string, FacetValue>): number[] {
-    if (Object.keys(facetObj).length === 0) {
+  private getEqualCandidates(equalFilters: Record<string, Scalar | Scalar[]>): number[] {
+    if (Object.keys(equalFilters).length === 0) {
       // All indices
       return Array.from({ length: this.items.length }, (_unused, i) => i);
     }
 
     const facetEntries: Array<{ postings: number[]; size: number }> = [];
 
-    for (const [field, value] of Object.entries(facetObj)) {
+    for (const [field, value] of Object.entries(equalFilters)) {
       const postingsForField = this.facetIndex[field];
       if (!postingsForField) {
         // Field not indexed as facet; no matches
@@ -153,7 +173,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
 
       const values = Array.isArray(value) ? value : [value];
       
-      // Single-value fast path: skip mergeUnionSorted for common case
+      // Single-value fast path
       if (values.length === 1) {
         const valueKey = String(values[0]);
         const postings = postingsForField[valueKey];
@@ -181,7 +201,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
         return [];
       }
 
-      // Merge postings for this facet (union for "IN" semantics)
+      // Merge postings for this field (union for "IN" semantics)
       const mergedPostings = arrayOperations.mergeUnionSorted(postingsArrays);
       const estimatedSize = mergedPostings.length;
 
@@ -218,90 +238,16 @@ export class LyraBundle<T extends Record<string, unknown>> {
       }
     }
 
-    if (candidateIndices === null) {
-      return Array.from({ length: this.items.length }, (_unused, i) => i);
-    }
+    if (candidateIndices === null) return Array.from({ length: this.items.length }, (_unused, index) => index);
 
     return candidateIndices;
   }
 
   /**
-   * Compute candidate indices based on facet filters (array of facet objects).
-   * Combines results based on the specified mode.
+   * Build field type map for range fields.
    * @internal
    */
-  private getFacetCandidates(
-    facetObjs: Array<Record<string, FacetValue>>,
-    mode: FacetMode,
-  ): number[] {
-    if (facetObjs.length === 0) {
-      // No facet filters; return all indices
-      return Array.from({ length: this.items.length }, (_unused, i) => i);
-    }
-
-    // Get candidates for each facet object
-    const candidateSets: number[][] = [];
-    for (const facetObj of facetObjs) {
-      const candidates = this.getSingleFacetCandidates(facetObj);
-      if (candidates.length > 0) {
-        candidateSets.push(candidates);
-      }
-      else if (mode === 'intersection') {
-        // Early exit for intersection if any set is empty
-        return [];
-      }
-    }
-
-    if (candidateSets.length === 0) {
-      return [];
-    }
-
-    if (candidateSets.length === 1) {
-      return candidateSets[0];
-    }
-
-    // Combine candidate sets based on mode
-    if (mode === 'union') {
-      return arrayOperations.mergeUnionSorted(candidateSets);
-    }
-    else {
-      // Intersection mode: start with first set and intersect with others
-      let result = candidateSets[0];
-      for (let i = 1; i < candidateSets.length; i++) {
-        const target = i % LyraBundle.SCRATCH_ARRAY_COUNT === 0 ? this.scratchA : this.scratchB;
-        arrayOperations.intersectSorted(result, candidateSets[i], target);
-        result = target;
-        
-        // Early exit if intersection is empty
-        if (result.length === 0) {
-          return [];
-        }
-      }
-      return result;
-    }
-  }
-
-  /**
-   * Apply a single range filter object to candidate indices.
-   * @internal
-   */
-  private getSingleRangeCandidates(
-    startIndices: number[],
-    rangeObj: Record<string, RangeFilter>,
-  ): number[] {
-    if (Object.keys(rangeObj).length === 0) {
-      return startIndices;
-    }
-
-    // Validate range fields
-    const rangeFields = Object.keys(rangeObj);
-    const validRangeFields = new Set(this.manifest.capabilities.ranges);
-    const hasInvalidRangeField = rangeFields.some((field) => !validRangeFields.has(field));
-    if (hasInvalidRangeField) {
-      return [];
-    }
-
-    // Build field type map for range fields in query
+  private buildRangeFieldTypes(rangeFields: string[]): Record<string, FieldType> {
     const fieldTypes: Record<string, FieldType> = {};
     for (const field of rangeFields) {
       const fieldDef = this.manifest.fields.find((fieldDefinition) => fieldDefinition.name === field);
@@ -309,12 +255,31 @@ export class LyraBundle<T extends Record<string, unknown>> {
         fieldTypes[field] = fieldDef.type;
       }
     }
+    return fieldTypes;
+  }
 
-    // Reuse scratch array for range filtering
+  /**
+   * Apply range filters to candidate indices (v2).
+   * @internal
+   */
+  private applyRangeFilters(
+    startIndices: number[],
+    rangeFilters: Record<string, RangeBound>,
+  ): number[] {
+    if (Object.keys(rangeFilters).length === 0) return startIndices;
+
+    // Validate range fields
+    const rangeFields = Object.keys(rangeFilters);
+    const validRangeFields = new Set(this.manifest.capabilities.ranges);
+    const hasInvalidRangeField = rangeFields.some((field) => !validRangeFields.has(field));
+    if (hasInvalidRangeField) return [];
+
+    // Build field type map and apply range filtering
+    const fieldTypes = this.buildRangeFieldTypes(rangeFields);
     arrayOperations.filterIndicesByRange(
       startIndices,
       this.items,
-      rangeObj,
+      rangeFilters,
       fieldTypes,
       this.scratchRange,
     );
@@ -322,85 +287,28 @@ export class LyraBundle<T extends Record<string, unknown>> {
   }
 
   /**
-   * Compute candidate indices based on range filters (array of range objects).
-   * Combines results based on the specified mode.
+   * Compute facet counts for the given candidate indices (canonical facets only).
    * @internal
    */
-  private getRangeCandidates(
-    startIndices: number[],
-    rangeObjs: Array<Record<string, RangeFilter>>,
-    mode: RangeMode,
-  ): number[] {
-    if (rangeObjs.length === 0) {
-      // No range filters; return input indices unchanged
-      return startIndices;
-    }
-
-    // Get candidates for each range object
-    const candidateSets: number[][] = [];
-    for (const rangeObj of rangeObjs) {
-      const candidates = this.getSingleRangeCandidates(startIndices, rangeObj);
-      if (candidates.length > 0) {
-        candidateSets.push(candidates);
-      }
-      else if (mode === 'intersection') {
-        // Early exit for intersection if any set is empty
-        return [];
-      }
-    }
-
-    if (candidateSets.length === 0) {
-      return [];
-    }
-
-    if (candidateSets.length === 1) {
-      return candidateSets[0];
-    }
-
-    // Combine candidate sets based on mode
-    if (mode === 'union') {
-      return arrayOperations.mergeUnionSorted(candidateSets);
-    }
-    else {
-      // Intersection mode: start with first set and intersect with others
-      let result = candidateSets[0];
-      for (let i = 1; i < candidateSets.length; i++) {
-        const target = i % LyraBundle.SCRATCH_ARRAY_COUNT === 0 ? this.scratchA : this.scratchB;
-        arrayOperations.intersectSorted(result, candidateSets[i], target);
-        result = target;
-        
-        // Early exit if intersection is empty
-        if (result.length === 0) {
-          return [];
-        }
-      }
-      return result;
-    }
-  }
-
-  /**
-   * Compute facet counts for the given candidate indices.
-   * @internal
-   */
-  private computeFacetCounts(indices: number[]): FacetCounts {
+  private computeFacetCounts(indices: number[], facetFields?: string[]): FacetCounts {
+    const fieldsToCount = facetFields || this.manifest.capabilities.facets;
     const facetCounts: FacetCounts = {};
     // Cache frequently accessed values
-    const facetFields = this.manifest.capabilities.facets;
     const items = this.items;
-    const numFacets = facetFields.length;
+    const numFacets = fieldsToCount.length;
 
     // Pre-initialize facetCounts objects
     for (let i = 0; i < numFacets; i++) {
-      const field = facetFields[i];
+      const field = fieldsToCount[i];
       facetCounts[field] = {};
     }
 
-    // Iterate through indices that passed both facet and range filters
+    // Iterate through indices that passed filters
     for (const idx of indices) {
       const item = items[idx] as Record<string, unknown>;
       
       for (let i = 0; i < numFacets; i++) {
-        const field = facetFields[i];
+        const field = fieldsToCount[i];
         const raw = item[field];
         if (raw === undefined || raw === null) continue;
 
@@ -424,66 +332,98 @@ export class LyraBundle<T extends Record<string, unknown>> {
   }
 
   /**
-   * Execute a facet/range query against the bundle.
+   * Execute a v2 query against the bundle.
    *
    * Query contract:
-   * - Unknown facet fields: treated as "no matches" (returns total = 0)
-   * - Unknown range fields: treated as "no matches" (returns total = 0)
+   * - Unknown fields: treated as "no matches" (returns total = 0)
    * - Negative offset: clamped to 0
    * - Negative limit: treated as 0 (no results)
-   * - facetMode and rangeMode default to 'union'
+   * - All operators are intersected (AND logic)
    */
   query(query: LyraQuery = {}): LyraResult<T> {
-    const { 
-      facets, 
-      ranges, 
-      facetMode = 'union',
-      rangeMode = 'union',
-      limit, 
-      offset, 
-      includeFacetCounts = false,
-    } = query;
-
-    // Normalize facets and ranges to array format
-    const normalizedFacets = normalizeFacets(facets);
-    const normalizedRanges = normalizeRanges(ranges);
-
-    // Cache manifest lookups
-    const items = this.items;
-
-    // Normalize offset and limit
-    const normalizedOffset = offset != null && offset < 0 ? 0 : (offset ?? 0);
-    const normalizedLimit = limit != null && limit < 0 ? 0 : limit;
-
-    // Get candidate indices from facet filters
-    let candidateIndices = this.getFacetCandidates(normalizedFacets, facetMode);
-
-    // Apply range filters on indices
-    // Note: Range min/max must be numbers; for dates, use epoch milliseconds (e.g., Date.parse(isoString))
-    candidateIndices = this.getRangeCandidates(candidateIndices, normalizedRanges, rangeMode);
-
-    const total = candidateIndices.length;
-
-    // Compute facet counts if requested
-    const facetCounts = includeFacetCounts ? this.computeFacetCounts(candidateIndices) : undefined;
-
-    // Apply pagination on indices (using normalized values)
-    const start = normalizedOffset;
-    const end = normalizedLimit != null ? start + normalizedLimit : undefined;
-    const paginatedIndices = candidateIndices.slice(start, end);
-
-    // Convert indices to items only for the final paginated slice
-    const resultItems = paginatedIndices.map((idx) => items[idx]);
-
+    // 1. Normalize query (extract nulls from equal/notEqual)
+    const normalized = normalizeQuery(query);
+    
+    // 2. Resolve aliases in equal/notEqual filters (Option B: warn and continue)
+    const resolvedEqual = resolveAliases(normalized.equalFilters, this.manifest, 'equal');
+    const resolvedNotEqual = resolveAliases(normalized.notEqualFilters, this.manifest, 'notEqual');
+    
+    // 3. Build candidate set from equal filters
+    let candidates = this.getEqualCandidates(resolvedEqual);
+    
+    // 3b. Handle fields with OR null semantics (equal: { field: [val, null] })
+    if (normalized.equalWithNull.size > 0) {
+      // For each field with OR null, union candidates from equal + null matches
+      const nullCandidates: number[] = [];
+      for (const field of normalized.equalWithNull) {
+        // Get items where this field IS NULL
+        for (let i = 0; i < this.items.length; i++) {
+          const item = this.items[i] as Record<string, unknown>;
+          if (item[field] === null || item[field] === undefined) {
+            nullCandidates.push(i);
+          }
+        }
+      }
+      // Union equal candidates with null candidates
+      if (nullCandidates.length > 0) {
+        candidates = arrayOperations.mergeUnionSorted([candidates, nullCandidates]);
+      }
+    }
+    
+    // 4. Apply range filters
+    candidates = this.applyRangeFilters(candidates, normalized.rangeFilters);
+    
+    // 5. Apply null checks (for explicit isNull/isNotNull, not OR null from arrays)
+    // Remove fields that are in equalWithNull from isNull since they're handled above
+    const explicitNullChecks = {
+      isNull: normalized.nullChecks.isNull.filter(field => !normalized.equalWithNull.has(field)),
+      isNotNull: normalized.nullChecks.isNotNull,
+    };
+    candidates = filterByNullChecks(candidates, this.items, explicitNullChecks, this.scratchRange);
+    
+    // 6. Apply exclusions (notEqual)
+    candidates = filterByExclusions(candidates, this.items, resolvedNotEqual, this.scratchA);
+    
+    // 7. Facet counts (canonical facets only)
+    const total = candidates.length;
+    const facetCounts = query.includeFacetCounts 
+      ? this.computeFacetCounts(candidates, this.manifest.capabilities.facets)
+      : undefined;
+    
+    // 8. Pagination
+    const start = Math.max(0, query.offset ?? 0);
+    const end = query.limit != null ? start + Math.max(0, query.limit) : undefined;
+    const paginatedIndices = candidates.slice(start, end);
+    const resultItems = paginatedIndices.map(idx => this.items[idx]);
+    
+    // 9. Enrich with aliases (defaults to true if aliases are available)
+    let enrichedAliases: Array<Record<string, string[]>> | undefined;
+    if (this.manifest.capabilities.aliases && this.manifest.capabilities.aliases.length > 0) {
+      // Default to true if not specified
+      const shouldEnrich = query.enrichAliases !== false;
+      
+      if (shouldEnrich) {
+        const fieldsToEnrich = Array.isArray(query.enrichAliases)
+          ? query.enrichAliases.filter(field => this.manifest.capabilities.aliases!.includes(field))
+          : this.manifest.capabilities.aliases;
+        
+        enrichedAliases = enrichResultsWithAliases(resultItems, fieldsToEnrich, this.manifest);
+      }
+    }
+    
     return {
       items: resultItems,
       total,
       applied: {
-        facets,
-        ranges,
+        equal: query.equal,
+        notEqual: query.notEqual,
+        ranges: query.ranges,
+        isNull: query.isNull,
+        isNotNull: query.isNotNull,
       },
       facets: facetCounts,
       snapshot: this.snapshot(),
+      enrichedAliases,
     };
   }
 
@@ -512,7 +452,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
    */
   getFacetSummary(
     field: string,
-    options?: { facets?: LyraQuery['facets']; ranges?: LyraQuery['ranges'] },
+    options?: { equal?: LyraQuery['equal']; ranges?: LyraQuery['ranges'] },
   ): { field: string; values: Array<{ value: string | number | boolean; count: number }> } {
     // Robust field validation: check both capabilities and field kind
     const fieldDef = this.manifest.fields.find((fieldDef) => fieldDef.name === field);
@@ -526,7 +466,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
 
     // Query with includeFacetCounts, limit: 0 to avoid materializing items
     const result = this.query({
-      facets: options?.facets,
+      equal: options?.equal,
       ranges: options?.ranges,
       includeFacetCounts: true,
       limit: 0,
@@ -602,10 +542,14 @@ export class LyraBundle<T extends Record<string, unknown>> {
 
     const { manifest, items, facetIndex } = raw;
 
-    // Validate version
-    if (!manifest.version || !manifest.version.startsWith('1.')) {
+    // Validate version (support both v1 and v2)
+    if (!manifest.version) {
+      throw new Error('Invalid bundle: missing version');
+    }
+    const versionMajor = manifest.version.split('.')[0];
+    if (versionMajor !== '1' && versionMajor !== '2') {
       throw new Error(
-        `Invalid bundle version: "${manifest.version}". Expected version starting with "1."`,
+        `Invalid bundle version: "${manifest.version}". Expected version starting with "1." or "2."`,
       );
     }
 
@@ -659,7 +603,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
   }
 }
 
-// Internal Helpers
+// Utilities
 // ==============================
 
 /**
@@ -680,27 +624,288 @@ function parseFacetKey(fieldType: FieldType, key: string): string | number | boo
 }
 
 /**
- * Normalize facets parameter from single object or array to array format.
+ * Normalize query operators for internal processing.
+ * Handles null value normalization:
+ * - equal: { field: null } → isNull: ['field'] (removed from equal)
+ * - notEqual: { field: null } → isNotNull: ['field'] (removed from notEqual)
+ * 
+ * This keeps value-based filters separate from null checks.
  * @internal
  */
-function normalizeFacets(
-  facets: LyraQuery['facets'],
-): Array<Record<string, FacetValue>> {
-  if (facets == null) {
-    return [];
+function normalizeQuery(query: LyraQuery): {
+  equalFilters: Record<string, Scalar | Scalar[]>; // null values removed, but arrays with null tracked separately
+  notEqualFilters: Record<string, Scalar | Scalar[]>; // null values removed
+  rangeFilters: Record<string, RangeBound>;
+  nullChecks: { 
+    isNull: string[];    // includes fields from equal: { field: null } or equal: { field: [..., null] }
+    isNotNull: string[]; // includes fields from notEqual: { field: null }
+  };
+  equalWithNull: Set<string>; // Fields in equalFilters that also need null matching (OR semantics)
+} {
+  const nullChecks = {
+    isNull: [...(query.isNull || [])],
+    isNotNull: [...(query.isNotNull || [])],
+  };
+  const equalWithNull = new Set<string>();
+  
+  // Process equal - extract nulls
+  const equalFilters: Record<string, Scalar | Scalar[]> = {};
+  if (query.equal) {
+    for (const [field, value] of Object.entries(query.equal)) {
+      if (value === null) {
+        // Normalize null to isNull
+        nullChecks.isNull.push(field);
+      }
+      else if (Array.isArray(value)) {
+        // Check if array contains null
+        const hasNull = value.includes(null);
+        const nonNullValues = value.filter(val => val !== null);
+        
+        if (value.length === 0) {
+          // Empty array means no matches (empty IN clause) - keep it so getEqualCandidates can detect it
+          equalFilters[field] = [];
+        }
+        else if (hasNull && nonNullValues.length > 0) {
+          // Array with both values and null: keep values in equalFilters, track OR null semantics
+          equalFilters[field] = nonNullValues.length === 1 ? nonNullValues[0] : nonNullValues;
+          equalWithNull.add(field);
+        }
+        else if (hasNull && nonNullValues.length === 0) {
+          // Array with only null: normalize to isNull
+          nullChecks.isNull.push(field);
+        }
+        else if (nonNullValues.length > 0) {
+          // Array with no null: use as-is
+          equalFilters[field] = nonNullValues.length === 1 ? nonNullValues[0] : nonNullValues;
+        }
+      }
+      else {
+        equalFilters[field] = value;
+      }
+    }
   }
-  return Array.isArray(facets) ? facets : [facets];
+  
+  // Process notEqual - extract nulls
+  const notEqualFilters: Record<string, Scalar | Scalar[]> = {};
+  if (query.notEqual) {
+    for (const [field, value] of Object.entries(query.notEqual)) {
+      if (value === null) {
+        // Normalize null to isNotNull
+        nullChecks.isNotNull.push(field);
+      }
+      else if (Array.isArray(value)) {
+        // Filter out nulls from array, add field to isNotNull if array contains null
+        const nonNullValues = value.filter(val => val !== null);
+        if (value.length !== nonNullValues.length) {
+          nullChecks.isNotNull.push(field);
+        }
+        if (nonNullValues.length > 0) {
+          notEqualFilters[field] = nonNullValues.length === 1 ? nonNullValues[0] : nonNullValues;
+        }
+      }
+      else {
+        notEqualFilters[field] = value;
+      }
+    }
+  }
+  
+  return {
+    equalFilters,
+    notEqualFilters,
+    rangeFilters: query.ranges || {},
+    nullChecks,
+    equalWithNull,
+  };
 }
 
 /**
- * Normalize ranges parameter from single object or array to array format.
+ * Resolve alias fields to canonical IDs.
+ * Option B: Warn and ignore unresolvable values (not a query failure).
  * @internal
  */
-function normalizeRanges(
-  ranges: LyraQuery['ranges'],
-): Array<Record<string, RangeFilter>> {
-  if (ranges == null) {
-    return [];
+function resolveAliases(
+  filters: Record<string, Scalar | Scalar[]>,
+  manifest: LyraManifest,
+  operatorName: 'equal' | 'notEqual',
+): Record<string, Scalar | Scalar[]> {
+  const resolved: Record<string, Scalar | Scalar[]> = {};
+  
+  for (const [field, value] of Object.entries(filters)) {
+    const fieldDef = manifest.fields.find(fieldDef => fieldDef.name === field);
+    
+    // Not an alias - pass through
+    if (!fieldDef || fieldDef.kind !== 'alias') {
+      resolved[field] = value;
+      continue;
+    }
+    
+    const lookup = manifest.lookups?.[field];
+    if (!lookup) {
+      // eslint-disable-next-line no-console
+      console.warn(`Alias field '${field}' has no lookup table, ignoring filter`);
+      continue;
+    }
+    
+    const values = Array.isArray(value) ? value : [value];
+    const resolvedIds: string[] = [];
+    
+    for (const val of values) {
+      const ids = lookup.aliasToIds[String(val)] || [];
+      if (ids.length === 0) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `No mapping found for ${field}='${val}' in ${operatorName}, ignoring this value`,
+        );
+      }
+      resolvedIds.push(...ids);
+    }
+    
+    // Only add if we found at least one ID
+    if (resolvedIds.length > 0) {
+      const targetField = fieldDef.aliasTarget!;
+      const deduped = [...new Set(resolvedIds)];
+      resolved[targetField] = deduped.length === 1 ? deduped[0] : deduped;
+    }
+    // If all values unresolvable, constraint is dropped (no filter on this field)
   }
-  return Array.isArray(ranges) ? ranges : [ranges];
+  
+  return resolved;
+}
+
+/**
+ * Filter indices based on null/not-null constraints.
+ * @internal
+ */
+function filterByNullChecks<T>(
+  indices: number[],
+  items: T[],
+  nullChecks: { isNull: string[]; isNotNull: string[] },
+  scratchArray: number[],
+): number[] {
+  if (nullChecks.isNull.length === 0 && nullChecks.isNotNull.length === 0) {
+    return indices;
+  }
+  
+  scratchArray.length = 0;
+  
+  for (const idx of indices) {
+    const item = items[idx] as Record<string, unknown>;
+    let matches = true;
+    
+    // Check isNull constraints
+    for (const field of nullChecks.isNull) {
+      const value = item[field];
+      if (value !== null && value !== undefined) {
+        matches = false;
+        break;
+      }
+    }
+    
+    if (!matches) continue;
+    
+    // Check isNotNull constraints
+    for (const field of nullChecks.isNotNull) {
+      const value = item[field];
+      if (value === null || value === undefined) {
+        matches = false;
+        break;
+      }
+    }
+    
+    if (matches) {
+      scratchArray.push(idx);
+    }
+  }
+  
+  return scratchArray;
+}
+
+/**
+ * Filter to exclude items matching notEqual filters.
+ * notEqual applies only to non-null values (null handling via isNull/isNotNull).
+ * @internal
+ */
+function filterByExclusions<T>(
+  indices: number[],
+  items: T[],
+  excludes: Record<string, Scalar | Scalar[]>,
+  scratchArray: number[],
+): number[] {
+  if (Object.keys(excludes).length === 0) {
+    return indices;
+  }
+  
+  scratchArray.length = 0;
+  
+  for (const idx of indices) {
+    const item = items[idx] as Record<string, unknown>;
+    let excluded = false;
+    
+    for (const [field, value] of Object.entries(excludes)) {
+      const itemValue = item[field];
+      const values = Array.isArray(value) ? value : [value];
+      
+      // notEqual matches if item value is IN the exclusion set AND not null
+      if (itemValue !== null && itemValue !== undefined && values.includes(itemValue as any)) {
+        excluded = true;
+        break;
+      }
+    }
+    
+    if (!excluded) {
+      scratchArray.push(idx);
+    }
+  }
+  
+  return scratchArray;
+}
+
+/**
+ * Enrich items with alias values via reverse lookup.
+ * Always returns array of length === items.length.
+ * @internal
+ */
+function enrichResultsWithAliases<T>(
+  items: T[],
+  aliasFields: string[],
+  manifest: LyraManifest,
+): Array<Record<string, string[]>> {
+  const enriched: Array<Record<string, string[]>> = [];
+  
+  for (const item of items) {
+    const itemEnriched: Record<string, string[]> = {};
+    
+    for (const aliasField of aliasFields) {
+      const fieldDef = manifest.fields.find(fieldDef => fieldDef.name === aliasField);
+      if (!fieldDef || fieldDef.kind !== 'alias' || !fieldDef.aliasTarget) {
+        continue;
+      }
+      
+      const lookup = manifest.lookups?.[aliasField];
+      if (!lookup?.idToAliases) {
+        continue;
+      }
+      
+      const canonicalValue = (item as any)[fieldDef.aliasTarget];
+      const ids = Array.isArray(canonicalValue) ? canonicalValue : [canonicalValue];
+      
+      const aliases: string[] = [];
+      for (const id of ids) {
+        if (id !== null && id !== undefined) {
+          const aliasValues = lookup.idToAliases[String(id)];
+          if (aliasValues) {
+            aliases.push(...aliasValues);
+          }
+        }
+      }
+      
+      if (aliases.length > 0) {
+        itemEnriched[aliasField] = [...new Set(aliases)]; // Dedupe
+      }
+    }
+    
+    enriched.push(itemEnriched);
+  }
+  
+  return enriched;
 }

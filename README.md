@@ -92,7 +92,7 @@ const bundle = LyraBundle.load<Ticket>(stored);
 
 // Define a query: high-priority open tickets for Acme in analytics
 const query: LyraQuery = {
-  facets: {
+  equal: {
     customer: 'Acme Corp',
     priority: 'high',
     status: 'open',
@@ -130,9 +130,13 @@ It is meant to complement those systems as a fast, portable index layer.
 
   Build once from structured data, then reuse the bundle everywhere.
 
-- **Faceted filtering**  
+- **Explicit query operators (v2)**  
 
-  Fast equality filters on fields like `status`, `priority`, `region`, `product`, etc. Facet fields can be single values or arrays; array fields match if **any** element matches.
+  Fast equality filters (`equal`), inequality filters (`notEqual`), null checks (`isNull`, `isNotNull`), and range queries (`ranges`). All operators support single values or arrays (IN semantics).
+
+- **Dimension-aware aliases (v2)**  
+
+  Query using human-readable names (e.g., `zone_name: 'Zone A'`) that automatically resolve to canonical IDs. Lookup tables are auto-generated from your data.
 
 - **Range queries**  
 
@@ -140,7 +144,7 @@ It is meant to complement those systems as a fast, portable index layer.
 
 - **Manifest-driven**  
 
-  Each bundle includes a manifest describing field types and query capabilities (`facets`, `ranges`), plus snapshot metadata (dataset ID, build time, format version).
+  Each bundle includes a manifest describing field types and query capabilities (`facets`, `ranges`, `aliases`), plus snapshot metadata (dataset ID, build time, format version).
 
 - **Deterministic & testable**  
 
@@ -197,58 +201,79 @@ The manifest is a JSON description embedded in the bundle. It includes:
 
 Each field in the manifest has a `kind` that determines how it's used:
 
-- **`id`**: Identifier field; currently informational for the manifest. It is stored in the items like any other field and is not specially indexed in v1.
+- **`id`**: Identifier field; currently informational for the manifest. It is stored in the items like any other field and is not specially indexed.
 - **`facet`**: Indexed for equality and IN filters. Values are stored in a posting list index for fast intersection.
 - **`range`**: Considered in numeric/date range filters. Values are checked at query time against min/max bounds.
 - **`meta`**: Included in the manifest for schema awareness, but not indexed. Useful for agent/tool descriptions and documentation.
+- **`alias`** (v2): Human-readable fields that resolve to canonical facet IDs. Lookup tables are auto-generated from item data.
 
 ### Query and result
 
-Lyra's query model is simple and agent-friendly:
+Lyra v2 uses explicit query operators for clarity and flexibility:
 
 ```ts
 interface LyraQuery {
-  facets?: Record<string, FacetValue> | Array<Record<string, FacetValue>>;
-  ranges?: Record<string, RangeFilter> | Array<Record<string, RangeFilter>>;
-  facetMode?: 'union' | 'intersection';
-  rangeMode?: 'union' | 'intersection';
+  equal?: Record<string, Scalar | Scalar[]>;      // Equality filters (IN semantics with arrays)
+  notEqual?: Record<string, Scalar | Scalar[]>;   // Inequality filters (NOT IN with arrays)
+  ranges?: Record<string, RangeBound>;            // Range filters
+  isNull?: string[];                              // Fields that must be NULL
+  isNotNull?: string[];                           // Fields that must NOT be NULL
   limit?: number;
   offset?: number;
   includeFacetCounts?: boolean;
+  enrichAliases?: boolean | string[];             // Enrich results with alias values (defaults to true if aliases available)
 }
 
 interface LyraResult<Item = unknown> {
   items: Item[];
   total: number;
   applied: {
-    facets?: LyraQuery['facets'];
+    equal?: LyraQuery['equal'];
+    notEqual?: LyraQuery['notEqual'];
     ranges?: LyraQuery['ranges'];
+    isNull?: LyraQuery['isNull'];
+    isNotNull?: LyraQuery['isNotNull'];
   };
   facets?: FacetCounts; // optional facet counts for drilldown
   snapshot: LyraSnapshotInfo;
+  enrichedAliases?: Array<Record<string, string[]>>; // Parallel array of alias values
 }
 ```
 
-**Array Queries:**
-
-Facets and ranges can be provided as arrays for multi-condition queries:
+**Query Examples:**
 
 ```ts
-// Union (OR) - default: items matching ANY of these conditions
+// Simple equality
 bundle.query({
-  facets: [
-    { status: 'open', priority: 'high' },
-    { status: 'in_progress', priority: 'urgent' }
-  ]
+  equal: { status: 'open', priority: 'high' }
 });
 
-// Intersection (AND): items matching ALL of these conditions
+// IN semantics with arrays
 bundle.query({
-  facets: [
-    { customer: 'ACME' },
-    { priority: 'high' }
-  ],
-  facetMode: 'intersection'
+  equal: { priority: ['high', 'urgent'] }
+});
+
+// Null checks (inline or explicit)
+bundle.query({
+  equal: { category: null }  // Normalized to isNull internally
+});
+
+bundle.query({
+  isNull: ['category'],
+  isNotNull: ['status']
+});
+
+// Exclusion filters
+bundle.query({
+  notEqual: { status: ['closed', 'cancelled'] }
+});
+
+// Mixed operators (all intersected - AND logic)
+bundle.query({
+  equal: { customer: 'ACME' },
+  notEqual: { priority: 'low' },
+  isNotNull: ['status'],
+  ranges: { createdAt: { min: oneWeekAgo, max: now } }
 });
 ```
 
@@ -395,7 +420,7 @@ Get facet counts for all fields at once:
 
 ```ts
 const result = bundle.query({
-  facets: {
+  equal: {
     customerId: 'C-ACME', // Current filter
   },
   includeFacetCounts: true,
@@ -417,7 +442,7 @@ const floorsSummary = bundle.getFacetSummary('floor');
 
 // What floors exist under current filters?
 const filteredFloorsSummary = bundle.getFacetSummary('floor', {
-  facets: { customerId: 'C-ACME', status: 'open' },
+  equal: { customerId: 'C-ACME', status: 'open' },
 });
 // Counts reflect only items matching the filters
 ```
@@ -430,9 +455,21 @@ const filteredFloorsSummary = bundle.getFacetSummary('floor', {
 - **Arrays contribute one count per element** (including duplicates). For example, an item with `tags: ['a', 'a', 'b']` contributes `'a': 2` and `'b': 1` to the counts.
 - Values are returned in sorted order (numbers ascending, booleans false-then-true, strings lexicographic).
 
+## Breaking Changes in v2
+
+**Lyra v2 introduces a breaking change to the query API:**
+
+- **`facets` field removed**: Use `equal` instead
+- **`facetMode`/`rangeMode` removed**: All operators are intersected (AND logic)
+- **New operators**: `equal`, `notEqual`, `isNull`, `isNotNull`
+- **Alias support**: Query using human-readable names that resolve to canonical IDs
+- **Bundle version**: All v2 bundles use `manifest.version = "2.0.0"`
+
+See [docs/migration-v2.md](./docs/migration-v2.md) for complete migration guide.
+
 ## Public API
 
-Lyra's v1 API is intentionally small and stable.
+Lyra's v2 API is intentionally small and stable.
 
 ### Core Functions
 
@@ -467,11 +504,14 @@ See [docs/errors-and-guarantees.md](./docs/errors-and-guarantees.md) for complet
 
 ## Status and roadmap
 
-**Lyra v1.0.0 is stable and production-ready.**
+**Lyra v2.0.0 is stable and production-ready.**
 
 **Completed:**
 
-- ✅ Manifest and query model solidified
+- ✅ V2 query model with explicit operators (`equal`, `notEqual`, `isNull`, `isNotNull`)
+- ✅ Dimension-aware aliases with auto-generated lookup tables
+- ✅ First-class null handling (no more JS post-filtering)
+- ✅ Result enrichment with human-readable alias values
 - ✅ Basic facet counts in `LyraResult` (via `includeFacetCounts`)
 - ✅ First-class agent integration helpers (`buildQuerySchema`, `buildOpenAiTool`)
 

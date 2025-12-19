@@ -45,7 +45,7 @@ export async function getScenarios(): Promise<Scenario[]> {
       setup: async () => ({
         run: () => {
           bundle100k.query({
-            facets: { customerId: 'C-ACME' },
+            equal: { customerId: 'C-ACME' },
           });
         },
       }),
@@ -55,7 +55,7 @@ export async function getScenarios(): Promise<Scenario[]> {
       setup: async () => ({
         run: () => {
           bundle100k.query({
-            facets: {
+            equal: {
               customerId: 'C-ACME',
               status: ['open', 'blocked'],
               priority: ['high', 'urgent'],
@@ -75,7 +75,7 @@ export async function getScenarios(): Promise<Scenario[]> {
       setup: async () => ({
         run: () => {
           bundle10k.query({
-            facets: {
+            equal: {
               status: ['open', 'blocked'],
               priority: ['high'],
             },

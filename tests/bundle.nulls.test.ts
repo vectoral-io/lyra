@@ -19,7 +19,7 @@ describe('LyraBundle - Null and Undefined Handling', () => {
     const nonNullTickets = ticketsWithNulls.filter((t) => t.status !== null);
     const sampleStatus = nonNullTickets[0]?.status;
     if (sampleStatus) {
-      const result = bundle.query({ facets: { status: sampleStatus } });
+      const result = bundle.query({ equal: { status: sampleStatus } });
 
       // Should only match non-null items
       const expected = nonNullTickets.filter((t) => t.status === sampleStatus);
@@ -42,7 +42,7 @@ describe('LyraBundle - Null and Undefined Handling', () => {
     const nonUndefinedTickets = ticketsWithUndefined.filter((t) => t.priority !== undefined);
     const samplePriority = nonUndefinedTickets[0]?.priority;
     if (samplePriority) {
-      const result = bundle.query({ facets: { priority: samplePriority } });
+      const result = bundle.query({ equal: { priority: samplePriority } });
 
       const expected = nonUndefinedTickets.filter((t) => t.priority === samplePriority);
       expect(result.total).toBe(expected.length);
@@ -58,9 +58,11 @@ describe('LyraBundle - Null and Undefined Handling', () => {
     const tickets = generateTicketArray(100);
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
-    // Querying for null should return empty (null values are not indexed)
-    const result = bundle.query({ facets: { status: null as any } });
+    // Querying for null should use isNull operator
+    // Note: generateTicketArray doesn't create null status values, so result will be empty
+    const result = bundle.query({ isNull: ['status'] });
 
+    // All tickets have non-null status, so result should be empty
     expect(result.total).toBe(0);
     expect(result.items.length).toBe(0);
   });
@@ -70,10 +72,13 @@ describe('LyraBundle - Null and Undefined Handling', () => {
     const tickets = generateTicketArray(100);
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
-    // Querying for undefined should return empty
-    const result = bundle.query({ facets: { status: undefined as any } });
+    // Querying for undefined should use isNull operator (undefined treated as null)
+    // Note: generateTicketArray doesn't create null/undefined status values, so result will be empty
+    const result = bundle.query({ isNull: ['status'] });
 
+    // All tickets have non-null status, so result should be empty
     expect(result.total).toBe(0);
+    expect(result.items.length).toBe(0);
     expect(result.items.length).toBe(0);
   });
 
@@ -88,12 +93,12 @@ describe('LyraBundle - Null and Undefined Handling', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     // Empty string should be indexed as the string "empty"
-    const emptyResult = bundle.query({ facets: { status: '' } });
+    const emptyResult = bundle.query({ equal: { status: '' } });
     expect(emptyResult.total).toBe(1);
     expect(emptyResult.items[0]?.status).toBe('');
 
     // Null and undefined should not be indexed
-    const openResult = bundle.query({ facets: { status: 'open' } });
+    const openResult = bundle.query({ equal: { status: 'open' } });
     expect(openResult.total).toBe(1);
     expect(openResult.items[0]?.status).toBe('open');
   });
@@ -113,7 +118,7 @@ describe('LyraBundle - Null and Undefined Handling', () => {
     );
     const sampleCustomer = validTickets[0]?.customerId;
     if (sampleCustomer) {
-      const result = bundle.query({ facets: { customerId: sampleCustomer } });
+      const result = bundle.query({ equal: { customerId: sampleCustomer } });
 
       const expected = validTickets.filter((t) => t.customerId === sampleCustomer);
       expect(result.total).toBe(expected.length);

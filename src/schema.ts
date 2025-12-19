@@ -1,50 +1,51 @@
 import type { LyraManifest } from './types';
 
+// Types
+// ==============================
+
 /**
  * JSON Schema type (minimal representation).
  */
 export type JsonSchema = { [key: string]: unknown };
 
 /**
- * Options for building query schemas.
+ * Options for building query schemas (v2).
+ * @deprecated No longer used in v2 - kept for backward compatibility
  */
 export interface QuerySchemaOptions {
   /**
-   * How to represent facet values in the schema.
-   * - `'single'`: Facet values must be a single primitive (string, number, or boolean)
-   * - `'single-or-array'`: Facet values can be either a single primitive or an array of primitives (default)
+   * @deprecated No longer used in v2
    */
   facetArrayMode?: 'single' | 'single-or-array';
   /**
-   * Whether to include support for array query format (facets/ranges as arrays).
-   * When enabled, the schema allows both single objects and arrays of objects for facets and ranges,
-   * and includes facetMode/rangeMode parameters.
-   * Default: false (for backward compatibility)
+   * @deprecated No longer used in v2
    */
   includeArrayQueryFormat?: boolean;
 }
 
+// Implementation
+// ==============================
+
 /**
- * Build a JSON schema that describes the structure of a `LyraQuery` for a given manifest.
+ * Build a JSON schema that describes the structure of a `LyraQuery` (v2) for a given manifest.
  *
- * The generated schema matches the `LyraQuery` contract and is driven by
- * `manifest.capabilities.facets` and `manifest.capabilities.ranges` as the
- * source of truth for queryable fields.
- *
- * - `facets`: Object with facet field names as keys (from capabilities.facets)
- * - `ranges`: Object with range field names as keys (from capabilities.ranges)
- * - `limit`, `offset`: Optional number fields
- * - `includeFacetCounts`: Optional boolean field
+ * The generated schema matches the v2 `LyraQuery` contract with explicit operators:
+ * - `equal`: Object with canonical facet and alias field names as keys
+ * - `notEqual`: Object with canonical facet and alias field names as keys
+ * - `ranges`: Object with range field names as keys
+ * - `isNull`, `isNotNull`: Arrays of field names
+ * - `enrichAliases`: Boolean or array of alias field names
+ * - `limit`, `offset`, `includeFacetCounts`: Standard pagination/extras
  *
  * @param manifest - The bundle manifest describing fields and capabilities
- * @param options - Options for schema generation
- * @returns A JSON schema object describing the query structure
+ * @param options - Options for schema generation (deprecated, kept for compatibility)
+ * @returns A JSON schema object describing the v2 query structure
  */
 export function buildQuerySchema(
   manifest: LyraManifest,
-  options: QuerySchemaOptions = {},
+  _options: QuerySchemaOptions = {},
 ): JsonSchema {
-  const { facetArrayMode = 'single-or-array', includeArrayQueryFormat = false } = options;
+  // Options parameter kept for backward compatibility but unused in v2
 
   // Build a map of field names to field definitions for quick lookup
   const fieldMap = new Map<string, LyraManifest['fields'][0]>();
@@ -52,18 +53,16 @@ export function buildQuerySchema(
     fieldMap.set(field.name, field);
   }
 
-  const facetProperties: Record<string, unknown> = {};
+  // Build equal/notEqual properties from canonical facets + aliases
+  const equalProperties: Record<string, unknown> = {};
+  const notEqualProperties: Record<string, unknown> = {};
   const rangeProperties: Record<string, unknown> = {};
-
-  // Build facet properties from capabilities.facets (source of truth)
+  
+  // Include canonical facets
   for (const fieldName of manifest.capabilities.facets) {
     const field = fieldMap.get(fieldName);
-    if (!field) {
-      // Field not found in manifest.fields; skip (shouldn't happen in valid manifests)
-      continue;
-    }
+    if (!field) continue;
 
-    // Determine base type from field.type
     let baseType: string;
     if (field.type === 'number') {
       baseType = 'number';
@@ -75,32 +74,44 @@ export function buildQuerySchema(
       baseType = 'string';
     }
 
-    // Build schema based on facetArrayMode
-    if (facetArrayMode === 'single') {
-      facetProperties[fieldName] = {
-        type: baseType,
-      };
-    }
-    else {
-      // single-or-array (default)
-      facetProperties[fieldName] = {
+    // Support scalar or array (IN semantics)
+    const scalarOrArraySchema = {
+      anyOf: [
+        { type: baseType },
+        { type: 'null' }, // null normalized to isNull
+        { type: 'array', items: { anyOf: [{ type: baseType }, { type: 'null' }] } },
+      ],
+    };
+
+    equalProperties[fieldName] = scalarOrArraySchema;
+    notEqualProperties[fieldName] = scalarOrArraySchema;
+  }
+
+  // Include alias fields (v2)
+  if (manifest.capabilities.aliases) {
+    for (const aliasFieldName of manifest.capabilities.aliases) {
+      const aliasField = fieldMap.get(aliasFieldName);
+      if (!aliasField || aliasField.kind !== 'alias') continue;
+
+      // Aliases are always strings (human-readable names)
+      const scalarOrArraySchema = {
         anyOf: [
-          { type: baseType },
-          { type: 'array', items: { type: baseType } },
+          { type: 'string' },
+          { type: 'null' }, // null normalized to isNull/isNotNull
+          { type: 'array', items: { anyOf: [{ type: 'string' }, { type: 'null' }] } },
         ],
       };
+
+      equalProperties[aliasFieldName] = scalarOrArraySchema;
+      notEqualProperties[aliasFieldName] = scalarOrArraySchema;
     }
   }
 
-  // Build range properties from capabilities.ranges (source of truth)
+  // Build range properties from capabilities.ranges
   for (const fieldName of manifest.capabilities.ranges) {
     const field = fieldMap.get(fieldName);
-    if (!field) {
-      // Field not found in manifest.fields; skip (shouldn't happen in valid manifests)
-      continue;
-    }
+    if (!field) continue;
 
-    // Build range property schema
     const description =
       field.type === 'date'
         ? 'min/max as Unix ms'
@@ -122,51 +133,48 @@ export function buildQuerySchema(
     };
   }
 
-  // Build facets and ranges schema (single object or array support)
-  const facetsObjectSchema = {
-    type: 'object',
-    description: 'Facet filters (equality matching)',
-    properties: facetProperties,
-    additionalProperties: false,
-  };
+  // Build all field names for isNull/isNotNull (canonical + aliases)
+  const allQueryableFields = [
+    ...manifest.capabilities.facets,
+    ...(manifest.capabilities.aliases || []),
+  ];
 
-  const rangesObjectSchema = {
-    type: 'object',
-    description: 'Range filters (min/max bounds per field)',
-    properties: rangeProperties,
-    additionalProperties: false,
-  };
-
-  const facetsSchema = includeArrayQueryFormat
-    ? {
-      anyOf: [
-        facetsObjectSchema,
-        {
-          type: 'array',
-          description: 'Array of facet filter objects (combined with facetMode)',
-          items: facetsObjectSchema,
-        },
-      ],
-    }
-    : facetsObjectSchema;
-
-  const rangesSchema = includeArrayQueryFormat
-    ? {
-      anyOf: [
-        rangesObjectSchema,
-        {
-          type: 'array',
-          description: 'Array of range filter objects (combined with rangeMode)',
-          items: rangesObjectSchema,
-        },
-      ],
-    }
-    : rangesObjectSchema;
-
-  // Build properties object
+  // Build properties object for v2 query schema
   const properties: Record<string, unknown> = {
-    facets: facetsSchema,
-    ranges: rangesSchema,
+    equal: {
+      type: 'object',
+      description: 'Equality filters (exact match or IN semantics)',
+      properties: equalProperties,
+      additionalProperties: false,
+    },
+    notEqual: {
+      type: 'object',
+      description: 'Inequality filters (NOT equal or NOT IN)',
+      properties: notEqualProperties,
+      additionalProperties: false,
+    },
+    ranges: {
+      type: 'object',
+      description: 'Range filters (min/max bounds per field)',
+      properties: rangeProperties,
+      additionalProperties: false,
+    },
+    isNull: {
+      type: 'array',
+      description: 'Fields that must be NULL',
+      items: {
+        type: 'string',
+        enum: allQueryableFields,
+      },
+    },
+    isNotNull: {
+      type: 'array',
+      description: 'Fields that must NOT be NULL',
+      items: {
+        type: 'string',
+        enum: allQueryableFields,
+      },
+    },
     limit: {
       type: 'number',
       description: 'Maximum number of results to return',
@@ -181,21 +189,24 @@ export function buildQuerySchema(
     },
   };
 
-  // Add facetMode and rangeMode if array query format is enabled
-  if (includeArrayQueryFormat) {
-    properties.facetMode = {
-      type: 'string',
-      enum: ['union', 'intersection'],
-      description: 'How to combine multiple facet objects: union (OR) or intersection (AND). Default: union',
-    };
-    properties.rangeMode = {
-      type: 'string',
-      enum: ['union', 'intersection'],
-      description: 'How to combine multiple range objects: union (OR) or intersection (AND). Default: union',
+  // Add enrichAliases if aliases are present
+  if (manifest.capabilities.aliases && manifest.capabilities.aliases.length > 0) {
+    properties.enrichAliases = {
+      anyOf: [
+        { type: 'boolean' },
+        {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: manifest.capabilities.aliases,
+          },
+        },
+      ],
+      description: 'Enrich results with alias values (true for all, or array of specific alias fields)',
     };
   }
 
-  // Build top-level schema matching LyraQuery contract
+  // Build top-level schema matching v2 LyraQuery contract
   return {
     type: 'object',
     properties,

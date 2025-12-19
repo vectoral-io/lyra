@@ -24,7 +24,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, configWithTags);
 
     // Empty arrays should be skipped (like null)
-    const result = bundle.query({ facets: { tags: 'tag1' } });
+    const result = bundle.query({ equal: { tags: 'tag1' } });
     expect(result.total).toBe(1);
     expect(result.items[0]?.tags).toContain('tag1');
   });
@@ -46,7 +46,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, configWithTags);
 
     // Null/undefined elements should be converted to strings and indexed
-    const result = bundle.query({ facets: { tags: 'tag1' } });
+    const result = bundle.query({ equal: { tags: 'tag1' } });
     expect(result.total).toBe(2); // Both items with tag1
   });
 
@@ -66,12 +66,12 @@ describe('LyraBundle - Multi-Valued Facets', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, configWithTags);
 
     // Both items should match tag1
-    const result = bundle.query({ facets: { tags: 'tag1' } });
+    const result = bundle.query({ equal: { tags: 'tag1' } });
     expect(result.total).toBe(2);
 
     // Facet counts should count each occurrence
     const resultWithCounts = bundle.query({
-      facets: { tags: 'tag1' },
+      equal: { tags: 'tag1' },
       includeFacetCounts: true,
     });
     expect(resultWithCounts.facets?.tags['tag1']).toBe(3); // 2 + 1
@@ -93,13 +93,13 @@ describe('LyraBundle - Multi-Valued Facets', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, configWithTags);
 
     // All values should be converted to strings
-    const stringResult = bundle.query({ facets: { tags: 'string' } });
+    const stringResult = bundle.query({ equal: { tags: 'string' } });
     expect(stringResult.total).toBe(2);
 
-    const numberResult = bundle.query({ facets: { tags: '123' } });
+    const numberResult = bundle.query({ equal: { tags: '123' } });
     expect(numberResult.total).toBe(1);
 
-    const boolResult = bundle.query({ facets: { tags: 'true' } });
+    const boolResult = bundle.query({ equal: { tags: 'true' } });
     expect(boolResult.total).toBe(1);
   });
 
@@ -120,10 +120,10 @@ describe('LyraBundle - Multi-Valued Facets', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, configWithTags);
 
     // Should handle large arrays
-    const result = bundle.query({ facets: { tags: 'tag0' } });
+    const result = bundle.query({ equal: { tags: 'tag0' } });
     expect(result.total).toBe(2);
 
-    const result149 = bundle.query({ facets: { tags: 'tag149' } });
+    const result149 = bundle.query({ equal: { tags: 'tag149' } });
     expect(result149.total).toBe(1);
   });
 
@@ -143,7 +143,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, configWithTags);
 
     // Nested arrays should be converted to strings
-    const result = bundle.query({ facets: { tags: 'normal' } });
+    const result = bundle.query({ equal: { tags: 'normal' } });
     expect(result.total).toBe(1);
   });
 
@@ -163,10 +163,10 @@ describe('LyraBundle - Multi-Valued Facets', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, configWithTags);
 
     // Empty strings should be indexed
-    const emptyResult = bundle.query({ facets: { tags: '' } });
+    const emptyResult = bundle.query({ equal: { tags: '' } });
     expect(emptyResult.total).toBe(1);
 
-    const tag1Result = bundle.query({ facets: { tags: 'tag1' } });
+    const tag1Result = bundle.query({ equal: { tags: 'tag1' } });
     expect(tag1Result.total).toBe(2);
   });
 
@@ -175,8 +175,9 @@ describe('LyraBundle - Multi-Valued Facets', () => {
     const tickets = generateTicketArray(100);
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
-    // Empty array should return no matches
-    const result = bundle.query({ facets: { status: [] as any } });
+    // Empty array in equal filter means no matches (empty IN clause)
+    // This is handled by getEqualCandidates returning empty array
+    const result = bundle.query({ equal: { status: [] as any } });
 
     expect(result.total).toBe(0);
     expect(result.items.length).toBe(0);
@@ -191,7 +192,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
     if (sampleStatus) {
       // Array with null/undefined should convert to strings
       const result = bundle.query({
-        facets: { status: [sampleStatus, null as any, undefined as any] },
+        equal: { status: [sampleStatus, null as any, undefined as any] },
       });
 
       // Should match items with the actual status value
@@ -209,7 +210,7 @@ describe('LyraBundle - Multi-Valued Facets', () => {
     if (sampleStatus) {
       // Duplicates in query should work (union semantics)
       const result = bundle.query({
-        facets: { status: [sampleStatus, sampleStatus, sampleStatus] },
+        equal: { status: [sampleStatus, sampleStatus, sampleStatus] },
       });
 
       const expected = tickets.filter((t) => t.status === sampleStatus);

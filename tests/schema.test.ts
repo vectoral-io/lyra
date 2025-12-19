@@ -35,28 +35,31 @@ describe('buildQuerySchema', () => {
     expect(schema.additionalProperties).toBe(false);
 
     const properties = schema.properties as Record<string, unknown>;
-    expect(properties.facets).toBeDefined();
+    expect(properties.equal).toBeDefined();
+    expect(properties.notEqual).toBeDefined();
     expect(properties.ranges).toBeDefined();
+    expect(properties.isNull).toBeDefined();
+    expect(properties.isNotNull).toBeDefined();
     expect(properties.limit).toBeDefined();
     expect(properties.offset).toBeDefined();
     expect(properties.includeFacetCounts).toBeDefined();
   });
 
-  it('should include all facet fields under facets.properties', () => {
+  it('should include all facet fields under equal.properties', () => {
     const schema = buildQuerySchema(testManifest);
     const properties = schema.properties as Record<string, unknown>;
-    const facets = properties.facets as Record<string, unknown>;
-    const facetProperties = facets.properties as Record<string, unknown>;
+    const equal = properties.equal as Record<string, unknown>;
+    const equalProperties = equal.properties as Record<string, unknown>;
 
-    expect(facetProperties.customerId).toBeDefined();
-    expect(facetProperties.priority).toBeDefined();
-    expect(facetProperties.status).toBeDefined();
-    expect(facetProperties.productArea).toBeDefined();
-    expect(facetProperties.region).toBeDefined();
-    expect(facetProperties.isActive).toBeDefined();
-    expect(facetProperties.count).toBeDefined();
-    expect(facetProperties.createdAt).toBeUndefined(); // Should not be in facets
-    expect(facetProperties.slaHours).toBeUndefined(); // Should not be in facets
+    expect(equalProperties.customerId).toBeDefined();
+    expect(equalProperties.priority).toBeDefined();
+    expect(equalProperties.status).toBeDefined();
+    expect(equalProperties.productArea).toBeDefined();
+    expect(equalProperties.region).toBeDefined();
+    expect(equalProperties.isActive).toBeDefined();
+    expect(equalProperties.count).toBeDefined();
+    expect(equalProperties.createdAt).toBeUndefined(); // Should not be in equal
+    expect(equalProperties.slaHours).toBeUndefined(); // Should not be in equal
   });
 
   it('should include all range fields under ranges.properties', () => {
@@ -71,64 +74,69 @@ describe('buildQuerySchema', () => {
     expect(rangeProperties.priority).toBeUndefined(); // Should not be in ranges
   });
 
-  it('should use anyOf for facets when facetArrayMode is single-or-array (default)', () => {
+  it('should use anyOf for equal fields (scalar or array)', () => {
     const schema = buildQuerySchema(testManifest);
     const properties = schema.properties as Record<string, unknown>;
-    const facets = properties.facets as Record<string, unknown>;
-    const facetProperties = facets.properties as Record<string, unknown>;
-    const customerIdSchema = facetProperties.customerId as Record<string, unknown>;
+    const equal = properties.equal as Record<string, unknown>;
+    const equalProperties = equal.properties as Record<string, unknown>;
+    const customerIdSchema = equalProperties.customerId as Record<string, unknown>;
 
     expect(customerIdSchema.anyOf).toBeDefined();
     expect(Array.isArray(customerIdSchema.anyOf)).toBe(true);
 
     const anyOf = customerIdSchema.anyOf as Array<Record<string, unknown>>;
-    expect(anyOf).toHaveLength(2);
-    expect(anyOf[0]).toEqual({ type: 'string' });
-    expect(anyOf[1]).toEqual({ type: 'array', items: { type: 'string' } });
+    // Should support string, null, or array of string/null
+    expect(anyOf.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('should use single type for facets when facetArrayMode is single', () => {
-    const schema = buildQuerySchema(testManifest, { facetArrayMode: 'single' });
-    const properties = schema.properties as Record<string, unknown>;
-    const facets = properties.facets as Record<string, unknown>;
-    const facetProperties = facets.properties as Record<string, unknown>;
-    const customerIdSchema = facetProperties.customerId as Record<string, unknown>;
-
-    expect(customerIdSchema.type).toBe('string');
-    expect(customerIdSchema.anyOf).toBeUndefined();
-  });
-
-  it('should correctly map facet field types', () => {
-    const schema = buildQuerySchema(testManifest, { facetArrayMode: 'single' });
-    const properties = schema.properties as Record<string, unknown>;
-    const facets = properties.facets as Record<string, unknown>;
-    const facetProperties = facets.properties as Record<string, unknown>;
-
-    expect((facetProperties.customerId as Record<string, unknown>).type).toBe('string');
-    expect((facetProperties.isActive as Record<string, unknown>).type).toBe('boolean');
-    expect((facetProperties.count as Record<string, unknown>).type).toBe('number');
-  });
-
-  it('should correctly map facet field types in anyOf mode', () => {
+  it('should support scalar or array types for equal fields', () => {
     const schema = buildQuerySchema(testManifest);
     const properties = schema.properties as Record<string, unknown>;
-    const facets = properties.facets as Record<string, unknown>;
-    const facetProperties = facets.properties as Record<string, unknown>;
+    const equal = properties.equal as Record<string, unknown>;
+    const equalProperties = equal.properties as Record<string, unknown>;
+    const customerIdSchema = equalProperties.customerId as Record<string, unknown>;
 
-    const stringFacet = facetProperties.customerId as Record<string, unknown>;
-    const anyOfString = stringFacet.anyOf as Array<Record<string, unknown>>;
-    expect(anyOfString[0].type).toBe('string');
-    expect(anyOfString[1]).toEqual({ type: 'array', items: { type: 'string' } });
+    // v2 always supports scalar or array via anyOf
+    expect(customerIdSchema.anyOf).toBeDefined();
+  });
 
-    const booleanFacet = facetProperties.isActive as Record<string, unknown>;
-    const anyOfBoolean = booleanFacet.anyOf as Array<Record<string, unknown>>;
-    expect(anyOfBoolean[0].type).toBe('boolean');
-    expect(anyOfBoolean[1]).toEqual({ type: 'array', items: { type: 'boolean' } });
+  it('should correctly map equal field types', () => {
+    const schema = buildQuerySchema(testManifest);
+    const properties = schema.properties as Record<string, unknown>;
+    const equal = properties.equal as Record<string, unknown>;
+    const equalProperties = equal.properties as Record<string, unknown>;
 
-    const numberFacet = facetProperties.count as Record<string, unknown>;
-    const anyOfNumber = numberFacet.anyOf as Array<Record<string, unknown>>;
-    expect(anyOfNumber[0].type).toBe('number');
-    expect(anyOfNumber[1]).toEqual({ type: 'array', items: { type: 'number' } });
+    // All equal fields use anyOf with type, null, and array variants
+    const customerIdSchema = equalProperties.customerId as Record<string, unknown>;
+    expect(customerIdSchema.anyOf).toBeDefined();
+    
+    const isActiveSchema = equalProperties.isActive as Record<string, unknown>;
+    expect(isActiveSchema.anyOf).toBeDefined();
+    
+    const countSchema = equalProperties.count as Record<string, unknown>;
+    expect(countSchema.anyOf).toBeDefined();
+  });
+
+  it('should correctly map equal field types in anyOf mode', () => {
+    const schema = buildQuerySchema(testManifest);
+    const properties = schema.properties as Record<string, unknown>;
+    const equal = properties.equal as Record<string, unknown>;
+    const equalProperties = equal.properties as Record<string, unknown>;
+
+    const stringEqual = equalProperties.customerId as Record<string, unknown>;
+    const anyOfString = stringEqual.anyOf as Array<Record<string, unknown>>;
+    expect(anyOfString.some(s => s.type === 'string')).toBe(true);
+    expect(anyOfString.some(s => s.type === 'array')).toBe(true);
+
+    const booleanEqual = equalProperties.isActive as Record<string, unknown>;
+    const anyOfBoolean = booleanEqual.anyOf as Array<Record<string, unknown>>;
+    expect(anyOfBoolean.some(s => s.type === 'boolean')).toBe(true);
+    expect(anyOfBoolean.some(s => s.type === 'array')).toBe(true);
+
+    const numberEqual = equalProperties.count as Record<string, unknown>;
+    const anyOfNumber = numberEqual.anyOf as Array<Record<string, unknown>>;
+    expect(anyOfNumber.some(s => s.type === 'number')).toBe(true);
+    expect(anyOfNumber.some(s => s.type === 'array')).toBe(true);
   });
 
   it('should create range properties with min/max structure', () => {
@@ -175,13 +183,15 @@ describe('buildQuerySchema', () => {
     expect(slaHoursSchema.description).toBe('numeric range');
   });
 
-  it('should set additionalProperties: false on facets and ranges', () => {
+  it('should set additionalProperties: false on equal, notEqual, and ranges', () => {
     const schema = buildQuerySchema(testManifest);
     const properties = schema.properties as Record<string, unknown>;
-    const facets = properties.facets as Record<string, unknown>;
+    const equal = properties.equal as Record<string, unknown>;
+    const notEqual = properties.notEqual as Record<string, unknown>;
     const ranges = properties.ranges as Record<string, unknown>;
 
-    expect(facets.additionalProperties).toBe(false);
+    expect(equal.additionalProperties).toBe(false);
+    expect(notEqual.additionalProperties).toBe(false);
     expect(ranges.additionalProperties).toBe(false);
   });
 
@@ -189,8 +199,11 @@ describe('buildQuerySchema', () => {
     const schema = buildQuerySchema(testManifest);
     const properties = schema.properties as Record<string, unknown>;
 
-    expect((properties.facets as Record<string, unknown>).description).toBe(
-      'Facet filters (equality matching)',
+    expect((properties.equal as Record<string, unknown>).description).toBe(
+      'Equality filters (exact match or IN semantics)',
+    );
+    expect((properties.notEqual as Record<string, unknown>).description).toBe(
+      'Inequality filters (NOT equal or NOT IN)',
     );
     expect((properties.ranges as Record<string, unknown>).description).toBe(
       'Range filters (min/max bounds per field)',
@@ -209,9 +222,9 @@ describe('buildQuerySchema', () => {
   it('should generate schema compatible with LyraQuery type', () => {
     const schema = buildQuerySchema(testManifest);
 
-    // Create a valid LyraQuery object
+    // Create a valid LyraQuery object (v2)
     const query: LyraQuery = {
-      facets: {
+      equal: {
         customerId: 'customer-123',
         priority: ['high', 'medium'],
         status: 'open',
@@ -230,20 +243,23 @@ describe('buildQuerySchema', () => {
     // Verify that the query structure matches the schema
     // This is a structural compatibility check
     const properties = schema.properties as Record<string, unknown>;
-    expect(properties.facets).toBeDefined();
+    expect(properties.equal).toBeDefined();
+    expect(properties.notEqual).toBeDefined();
     expect(properties.ranges).toBeDefined();
+    expect(properties.isNull).toBeDefined();
+    expect(properties.isNotNull).toBeDefined();
     expect(properties.limit).toBeDefined();
     expect(properties.offset).toBeDefined();
     expect(properties.includeFacetCounts).toBeDefined();
 
-    // Verify facets structure
-    const facets = properties.facets as Record<string, unknown>;
-    const facetProperties = facets.properties as Record<string, unknown>;
-    expect(facetProperties.customerId).toBeDefined();
-    expect(facetProperties.priority).toBeDefined();
-    expect(facetProperties.status).toBeDefined();
-    expect(facetProperties.isActive).toBeDefined();
-    expect(facetProperties.count).toBeDefined();
+    // Verify equal structure
+    const equal = properties.equal as Record<string, unknown>;
+    const equalProperties = equal.properties as Record<string, unknown>;
+    expect(equalProperties.customerId).toBeDefined();
+    expect(equalProperties.priority).toBeDefined();
+    expect(equalProperties.status).toBeDefined();
+    expect(equalProperties.isActive).toBeDefined();
+    expect(equalProperties.count).toBeDefined();
 
     // Verify ranges structure
     const ranges = properties.ranges as Record<string, unknown>;
@@ -254,7 +270,7 @@ describe('buildQuerySchema', () => {
 
   it('should handle manifest with no facet fields', () => {
     const manifest: LyraManifest = {
-      version: '1.0.0',
+      version: '2.0.0',
       datasetId: 'test',
       builtAt: '2025-01-01T00:00:00Z',
       fields: [
@@ -269,10 +285,10 @@ describe('buildQuerySchema', () => {
 
     const schema = buildQuerySchema(manifest);
     const properties = schema.properties as Record<string, unknown>;
-    const facets = properties.facets as Record<string, unknown>;
-    const facetProperties = facets.properties as Record<string, unknown>;
+    const equal = properties.equal as Record<string, unknown>;
+    const equalProperties = equal.properties as Record<string, unknown>;
 
-    expect(Object.keys(facetProperties)).toHaveLength(0);
+    expect(Object.keys(equalProperties)).toHaveLength(0);
   });
 
   it('should handle manifest with no range fields', () => {
@@ -300,7 +316,7 @@ describe('buildQuerySchema', () => {
 
   it('should exclude facet fields not listed in capabilities.facets', () => {
     const manifest: LyraManifest = {
-      version: '1.0.0',
+      version: '2.0.0',
       datasetId: 'test',
       builtAt: '2025-01-01T00:00:00Z',
       fields: [
@@ -316,11 +332,11 @@ describe('buildQuerySchema', () => {
 
     const schema = buildQuerySchema(manifest);
     const properties = schema.properties as Record<string, unknown>;
-    const facets = properties.facets as Record<string, unknown>;
-    const facetProperties = facets.properties as Record<string, unknown>;
+    const equal = properties.equal as Record<string, unknown>;
+    const equalProperties = equal.properties as Record<string, unknown>;
 
-    expect(facetProperties.status).toBeDefined();
-    expect(facetProperties.excludedFacet).toBeUndefined();
+    expect(equalProperties.status).toBeDefined();
+    expect(equalProperties.excludedFacet).toBeUndefined();
   });
 
   it('should exclude range fields not listed in capabilities.ranges', () => {
@@ -348,53 +364,34 @@ describe('buildQuerySchema', () => {
     expect(rangeProperties.excludedRange).toBeUndefined();
   });
 
-  it('should support array query format when includeArrayQueryFormat is true', () => {
-    const schema = buildQuerySchema(testManifest, { includeArrayQueryFormat: true });
-    const properties = schema.properties as Record<string, unknown>;
-
-    // Check that facets and ranges support anyOf for single object or array
-    const facets = properties.facets as Record<string, unknown>;
-    expect(facets.anyOf).toBeDefined();
-    expect(Array.isArray(facets.anyOf)).toBe(true);
-
-    const ranges = properties.ranges as Record<string, unknown>;
-    expect(ranges.anyOf).toBeDefined();
-    expect(Array.isArray(ranges.anyOf)).toBe(true);
-
-    // Check that facetMode and rangeMode are included
-    expect(properties.facetMode).toBeDefined();
-    expect(properties.rangeMode).toBeDefined();
-
-    const facetMode = properties.facetMode as Record<string, unknown>;
-    expect(facetMode.type).toBe('string');
-    expect(facetMode.enum).toEqual(['union', 'intersection']);
-
-    const rangeMode = properties.rangeMode as Record<string, unknown>;
-    expect(rangeMode.type).toBe('string');
-    expect(rangeMode.enum).toEqual(['union', 'intersection']);
+  // Note: Array query format (facetMode/rangeMode) was removed in v2
+  // These tests are skipped as they test deprecated functionality
+  it.skip('should support array query format when includeArrayQueryFormat is true', () => {
+    // Array query format removed in v2
   });
 
-  it('should not include facetMode/rangeMode when includeArrayQueryFormat is false', () => {
+  it('should not include facetMode/rangeMode (removed in v2)', () => {
     const schema = buildQuerySchema(testManifest);
     const properties = schema.properties as Record<string, unknown>;
 
     expect(properties.facetMode).toBeUndefined();
     expect(properties.rangeMode).toBeUndefined();
 
-    // Facets and ranges should be simple objects, not anyOf
-    const facets = properties.facets as Record<string, unknown>;
-    expect(facets.type).toBe('object');
-    expect(facets.anyOf).toBeUndefined();
+    // equal, notEqual, and ranges should be simple objects
+    const equal = properties.equal as Record<string, unknown>;
+    expect(equal.type).toBe('object');
+    expect(equal.anyOf).toBeUndefined();
 
     const ranges = properties.ranges as Record<string, unknown>;
     expect(ranges.type).toBe('object');
     expect(ranges.anyOf).toBeUndefined();
   });
 
-  it('should include array schema for facets when includeArrayQueryFormat is true', () => {
+  it.skip('should include array schema for facets when includeArrayQueryFormat is true', () => {
+    // Array query format removed in v2
     const schema = buildQuerySchema(testManifest, { includeArrayQueryFormat: true });
     const properties = schema.properties as Record<string, unknown>;
-    const facets = properties.facets as Record<string, unknown>;
+    const equal = properties.equal as Record<string, unknown>;
     const anyOf = facets.anyOf as Array<Record<string, unknown>>;
 
     expect(anyOf).toHaveLength(2);

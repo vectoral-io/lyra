@@ -17,10 +17,10 @@ type BundleItem = Record<string, unknown>;
  */
 function naiveFacetMatch(
   item: BundleItem,
-  facets: Record<string, unknown | unknown[]>,
+  equal: Record<string, unknown | unknown[]>,
   config: CreateBundleConfig<Record<string, unknown>>,
 ): boolean {
-  for (const [field, value] of Object.entries(facets)) {
+  for (const [field, value] of Object.entries(equal)) {
     const fieldConfig = config.fields[field];
     if (!fieldConfig || fieldConfig.kind !== 'facet') {
       // Field not configured as facet - no match
@@ -109,11 +109,50 @@ function naiveQuery(
 ): BundleItem[] {
   let filtered = items;
 
-  // Apply facet filters
-  if (query.facets && Object.keys(query.facets).length > 0) {
+  // Apply equal filters
+  if (query.equal && Object.keys(query.equal).length > 0) {
     filtered = filtered.filter((item) =>
-      naiveFacetMatch(item, query.facets!, config),
+      naiveFacetMatch(item, query.equal!, config),
     );
+  }
+
+  // Apply notEqual filters
+  if (query.notEqual && Object.keys(query.notEqual).length > 0) {
+    filtered = filtered.filter((item) => {
+      for (const [field, value] of Object.entries(query.notEqual!)) {
+        const fieldConfig = config.fields[field];
+        if (!fieldConfig || fieldConfig.kind !== 'facet') continue;
+        
+        const itemValue = item[field];
+        if (itemValue == null) continue; // null/undefined excluded from notEqual
+        
+        const itemValues = Array.isArray(itemValue) ? itemValue : [itemValue];
+        const queryValues = Array.isArray(value) ? value : [value];
+        
+        const itemValueStrings = itemValues.map((v) => String(v));
+        const queryValueStrings = queryValues.map((v) => String(v));
+        
+        // If any item value matches any query value, exclude this item
+        if (itemValueStrings.some((itemStr) => queryValueStrings.includes(itemStr))) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
+  // Apply isNull filters
+  if (query.isNull && query.isNull.length > 0) {
+    filtered = filtered.filter((item) => {
+      return query.isNull!.every((field) => item[field] == null);
+    });
+  }
+
+  // Apply isNotNull filters
+  if (query.isNotNull && query.isNotNull.length > 0) {
+    filtered = filtered.filter((item) => {
+      return query.isNotNull!.every((field) => item[field] != null);
+    });
   }
 
   // Apply range filters

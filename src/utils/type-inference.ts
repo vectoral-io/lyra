@@ -129,8 +129,9 @@ export function fromSimpleConfig<T extends Record<string, unknown>>(
     };
   }
 
-  // 2. facets
-  for (const key of cfg.facets ?? []) {
+  // 2. facets/equal (v2 uses 'equal', but support both for backward compatibility)
+  const facetFields = cfg.equal ?? cfg.facets ?? [];
+  for (const key of facetFields) {
     fields[key] = {
       kind: 'facet',
       type: inferFieldType(items, key, inferMode),
@@ -159,7 +160,7 @@ export function fromSimpleConfig<T extends Record<string, unknown>>(
   if (cfg.autoMeta !== false) {
     for (const key of allKeys) {
       const typedKey = key as FieldName<T>;
-      // Do not override explicit id/facet/range/meta from earlier steps
+      // Do not override explicit id/facet/range/meta/alias from earlier steps
       if (fields[typedKey]) continue;
 
       // Inspect items to decide if this is "simple enough"
@@ -169,6 +170,36 @@ export function fromSimpleConfig<T extends Record<string, unknown>>(
       fields[typedKey] = {
         kind: 'meta',
         type: inferFieldType(items, typedKey, inferMode),
+      };
+    }
+  }
+
+  // 6. Handle aliases (v2)
+  if (cfg.aliases) {
+    for (const [aliasField, targetField] of Object.entries(cfg.aliases)) {
+      const typedAliasField = aliasField as FieldName<T>;
+      const typedTargetField = targetField as FieldName<T>;
+      
+      // Validate target field exists
+      if (!fields[typedTargetField]) {
+        throw new Error(
+          `Alias field "${aliasField}" targets non-existent field "${targetField}"`,
+        );
+      }
+      
+      // Validate target is a facet or range (not meta/id)
+      const targetFieldDef = fields[typedTargetField];
+      if (targetFieldDef.kind !== 'facet' && targetFieldDef.kind !== 'range') {
+        throw new Error(
+          `Alias field "${aliasField}" must target a facet or range field, not "${targetFieldDef.kind}"`,
+        );
+      }
+      
+      // Infer alias field type from target field
+      fields[typedAliasField] = {
+        kind: 'alias',
+        type: inferFieldType(items, typedAliasField, inferMode),
+        targetField: typedTargetField,
       };
     }
   }

@@ -217,7 +217,7 @@ export function queryArb(config: CreateBundleConfig<Record<string, unknown>>): f
     .map(([fieldName]) => fieldName);
 
   return fc.record({
-    facets: facetFilterArb(facetFields),
+    equal: facetFilterArb(facetFields),
     ranges: rangeFilterArb(rangeFields),
     limit: fc.option(fc.integer({ min: 0, max: 1000 })),
     offset: fc.option(fc.integer({ min: 0, max: 1000 })),

@@ -28,25 +28,33 @@ interface OpenAiTool {
 
 
 /**
- * Build an OpenAI tool definition from a Lyra manifest.
+ * Build an OpenAI tool definition from a Lyra manifest (v2).
  *
  * The tool schema is automatically derived from the manifest, ensuring
- * it matches the `LyraQuery` contract exactly.
+ * it matches the v2 `LyraQuery` contract with explicit operators (equal, notEqual, ranges, isNull, isNotNull).
+ * Alias fields are included in the schema, allowing queries using human-readable names.
  *
  * @param manifest - The bundle manifest describing fields and capabilities
  * @param options - Options for tool generation (name and optional description)
  * @returns An OpenAI tool definition object
  */
 export function buildOpenAiTool(manifest: LyraManifest, options: OpenAiToolOptions): OpenAiTool {
-  const parameters = buildQuerySchema(manifest, {
-    facetArrayMode: 'single-or-array',
-  });
+  const parameters = buildQuerySchema(manifest);
+
+  // Build description mentioning aliases if present
+  let description = options.description;
+  if (!description) {
+    const aliasNote = manifest.capabilities.aliases && manifest.capabilities.aliases.length > 0
+      ? ` Supports both canonical IDs and human-readable alias fields (${manifest.capabilities.aliases.join(', ')}).`
+      : '';
+    description = `Query dataset "${manifest.datasetId}" using explicit filter operators (equal, notEqual, ranges, isNull, isNotNull).${aliasNote}`;
+  }
 
   return {
     type: 'function',
     function: {
       name: options.name,
-      description: options.description ?? `Query dataset "${manifest.datasetId}" using facet and range filters`,
+      description,
       parameters,
     },
   };

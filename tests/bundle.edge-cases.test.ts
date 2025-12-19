@@ -18,7 +18,7 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     ];
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
-    const result = bundle.query({ facets: { status: '' } });
+    const result = bundle.query({ equal: { status: '' } });
     expect(result.total).toBe(1);
     expect(result.items[0]?.status).toBe('');
   });
@@ -32,7 +32,7 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     ];
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
-    const result = bundle.query({ facets: { status: longString } });
+    const result = bundle.query({ equal: { status: longString } });
     expect(result.total).toBe(1);
     expect(result.items[0]?.status).toBe(longString);
   });
@@ -53,7 +53,7 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     for (const value of specialValues) {
-      const result = bundle.query({ facets: { status: value } });
+      const result = bundle.query({ equal: { status: value } });
       expect(result.total).toBe(1);
       expect(result.items[0]?.status).toBe(value);
     }
@@ -68,10 +68,10 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     ];
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
-    const spaceResult = bundle.query({ facets: { status: '   ' } });
+    const spaceResult = bundle.query({ equal: { status: '   ' } });
     expect(spaceResult.total).toBe(1);
 
-    const tabResult = bundle.query({ facets: { status: '\t\n' } });
+    const tabResult = bundle.query({ equal: { status: '\t\n' } });
     expect(tabResult.total).toBe(1);
   });
 
@@ -87,11 +87,11 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     // String '123' should match string '123'
-    const stringResult = bundle.query({ facets: { status: '123' } });
+    const stringResult = bundle.query({ equal: { status: '123' } });
     expect(stringResult.total).toBe(2); // Both convert to string '123'
 
     // Number 123 should also match (converted to string)
-    const numberResult = bundle.query({ facets: { status: 123 as any } });
+    const numberResult = bundle.query({ equal: { status: 123 as any } });
     expect(numberResult.total).toBe(2);
   });
 
@@ -106,10 +106,10 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     // Boolean true should convert to string 'true'
-    const trueResult = bundle.query({ facets: { status: true as any } });
+    const trueResult = bundle.query({ equal: { status: true as any } });
     expect(trueResult.total).toBe(2); // true and 'true'
 
-    const falseResult = bundle.query({ facets: { status: false as any } });
+    const falseResult = bundle.query({ equal: { status: false as any } });
     expect(falseResult.total).toBe(2); // false and 'false'
   });
 
@@ -123,10 +123,10 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     ];
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
-    expect(bundle.query({ facets: { status: 'null' } }).total).toBe(1);
-    expect(bundle.query({ facets: { status: 'undefined' } }).total).toBe(1);
-    expect(bundle.query({ facets: { status: 'true' } }).total).toBe(1);
-    expect(bundle.query({ facets: { status: 'false' } }).total).toBe(1);
+    expect(bundle.query({ equal: { status: 'null' } }).total).toBe(1);
+    expect(bundle.query({ equal: { status: 'undefined' } }).total).toBe(1);
+    expect(bundle.query({ equal: { status: 'true' } }).total).toBe(1);
+    expect(bundle.query({ equal: { status: 'false' } }).total).toBe(1);
   });
 
 
@@ -262,7 +262,7 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     // Querying for any status should return empty
-    const result = bundle.query({ facets: { status: 'open' } });
+    const result = bundle.query({ equal: { status: 'open' } });
     expect(result.total).toBe(0);
 
     // Empty query should return all items
@@ -281,7 +281,7 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     const bundle = await LyraBundle.create<Ticket>(ticketsWithExtra, config);
 
     // Should work fine - extra fields are ignored
-    const result = bundle.query({ facets: { status: 'open' } });
+    const result = bundle.query({ equal: { status: 'open' } });
     expect(result.total).toBeGreaterThanOrEqual(0);
   });
 
@@ -347,7 +347,7 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     // Querying non-existent field should return empty
-    const result = bundle.query({ facets: { nonexistentField: 'value' } as any });
+    const result = bundle.query({ equal: { nonexistentField: 'value' } as any });
 
     expect(result.total).toBe(0);
     expect(result.items.length).toBe(0);
@@ -373,7 +373,7 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     // Empty objects should be treated as no filters
-    const result = bundle.query({ facets: {}, ranges: {} });
+    const result = bundle.query({ equal: {}, ranges: {} });
 
     expect(result.total).toBe(100);
     expect(result.items.length).toBe(100);
@@ -385,7 +385,7 @@ describe('LyraBundle - Edge Cases and Weird Data', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     // Null/undefined should be ignored
-    const result = bundle.query({ facets: null as any, ranges: undefined as any });
+    const result = bundle.query({ equal: null as any, ranges: undefined as any });
 
     expect(result.total).toBe(100);
     expect(result.items.length).toBe(100);

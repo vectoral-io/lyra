@@ -3,9 +3,12 @@ import type {
   FacetPostingLists,
   FieldKind,
   FieldType,
+  LookupTable,
   LyraManifest,
 } from '../types';
 
+// Implementation
+// ==============================
 
 /**
  * Build a manifest from bundle configuration.
@@ -16,7 +19,7 @@ export function buildManifest<TItem extends Record<string, unknown>>(
 ): LyraManifest {
   const builtAt = new Date().toISOString();
 
-  const VALID_KINDS: FieldKind[] = ['id', 'facet', 'range', 'meta'];
+  const VALID_KINDS: FieldKind[] = ['id', 'facet', 'range', 'meta', 'alias'];
   const VALID_TYPES: FieldType[] = ['string', 'number', 'boolean', 'date'];
 
   const fields = Object.entries(config.fields)
@@ -41,6 +44,11 @@ export function buildManifest<TItem extends Record<string, unknown>>(
         );
       }
 
+      // For alias fields, validate targetField is provided
+      if (cfg.kind === 'alias' && !cfg.targetField) {
+        throw new Error(`Alias field "${name}" must specify targetField`);
+      }
+
       return {
         name,
         kind: cfg.kind,
@@ -50,6 +58,7 @@ export function buildManifest<TItem extends Record<string, unknown>>(
             ? ['between', 'gte', 'lte']
             : ['eq', 'in']
         ) as Array<'eq' | 'in' | 'between' | 'gte' | 'lte'>,
+        aliasTarget: cfg.kind === 'alias' ? cfg.targetField : undefined,
       };
     });
 
@@ -58,18 +67,42 @@ export function buildManifest<TItem extends Record<string, unknown>>(
     throw new Error('Invalid bundle: fields array must not be empty');
   }
 
+  // Separate canonical facets from aliases
+  const canonicalFacets = fields
+    .filter((field) => field.kind === 'facet')
+    .map((field) => field.name);
+  const aliasFields = fields
+    .filter((field) => field.kind === 'alias')
+    .map((field) => field.name);
+
+  // Validate alias targets exist and are facets/ranges
+  for (const field of fields) {
+    if (field.kind === 'alias' && field.aliasTarget) {
+      const targetField = fields.find(fieldDef => fieldDef.name === field.aliasTarget);
+      if (!targetField) {
+        throw new Error(
+          `Alias field "${field.name}" targets non-existent field "${field.aliasTarget}"`,
+        );
+      }
+      if (targetField.kind !== 'facet' && targetField.kind !== 'range') {
+        throw new Error(
+          `Alias field "${field.name}" must target a facet or range field, not "${targetField.kind}"`,
+        );
+      }
+    }
+  }
+
   return {
-    version: '1.0.0',
+    version: '2.0.0',
     datasetId: config.datasetId,
     builtAt,
     fields,
     capabilities: {
-      facets: fields
-        .filter((field) => field.kind === 'facet')
-        .map((field) => field.name),
+      facets: canonicalFacets,
       ranges: fields
         .filter((field) => field.kind === 'range')
         .map((field) => field.name),
+      aliases: aliasFields.length > 0 ? aliasFields : undefined,
     },
   };
 }
@@ -131,5 +164,107 @@ export function buildFacetIndex<T extends Record<string, unknown>>(
   }
 
   return facetIndex;
+}
+
+/**
+ * Auto-generate lookup tables from item data by scanning for alias/target field pairs.
+ * Called during bundle creation when aliases are declared.
+ * @internal
+ */
+export function buildLookupTablesFromData<T>(
+  items: T[],
+  aliases: Record<string, string>, // aliasField → targetField
+  _manifest: LyraManifest,
+): Record<string, LookupTable> {
+  const lookups: Record<string, LookupTable> = {};
+  
+  for (const [aliasField, targetField] of Object.entries(aliases)) {
+    const aliasToIds: Record<string, Set<string>> = {};
+    const idToAliases: Record<string, Set<string>> = {};
+    let foundPairs = 0;
+    let missingAlias = 0;
+    let missingTarget = 0;
+    let arrayValuesSkipped = 0;
+    
+    // Scan all items for alias/target pairs
+    for (const item of items) {
+      const aliasValue = (item as any)[aliasField];
+      const targetValue = (item as any)[targetField];
+      
+      // Validate: no array values allowed
+      if (Array.isArray(aliasValue)) {
+        arrayValuesSkipped++;
+        // eslint-disable-next-line no-console
+        console.warn(
+          `Alias field '${aliasField}' has array value in item, skipping. ` +
+          'Array values not supported for alias fields.',
+        );
+        continue;
+      }
+      if (Array.isArray(targetValue)) {
+        arrayValuesSkipped++;
+        // eslint-disable-next-line no-console
+        console.warn(
+          `Target field '${targetField}' has array value in item, skipping. ` +
+          'Array values not supported for alias target fields.',
+        );
+        continue;
+      }
+      
+      // Track missing fields for warning
+      if (aliasValue == null) missingAlias++;
+      if (targetValue == null) missingTarget++;
+      
+      // Skip if either is missing/null
+      if (aliasValue == null || targetValue == null) continue;
+      
+      const aliasKey = String(aliasValue);
+      const targetId = String(targetValue);
+      
+      // Build bidirectional mapping
+      if (!aliasToIds[aliasKey]) {
+        aliasToIds[aliasKey] = new Set();
+      }
+      aliasToIds[aliasKey].add(targetId);
+      
+      if (!idToAliases[targetId]) {
+        idToAliases[targetId] = new Set();
+      }
+      idToAliases[targetId].add(aliasKey);
+      
+      foundPairs++;
+    }
+    
+    // Warn if we couldn't build a complete lookup table
+    if (foundPairs === 0) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `Alias '${aliasField}' → '${targetField}': No valid pairs found. ` +
+        'This alias will not work in queries. ' +
+        `(${missingAlias} missing alias, ${missingTarget} missing target, ` +
+        `${arrayValuesSkipped} array values skipped)`,
+      );
+    }
+    else if (missingAlias > 0 || missingTarget > 0 || arrayValuesSkipped > 0) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `Alias '${aliasField}' → '${targetField}': Found ${foundPairs} valid pairs, ` +
+        `but ${missingAlias} missing alias, ${missingTarget} missing target, ` +
+        `${arrayValuesSkipped} array values skipped.`,
+      );
+    }
+    
+    // Convert Sets to arrays
+    lookups[aliasField] = {
+      aliasToIds: Object.fromEntries(
+        Object.entries(aliasToIds).map(([key, valueSet]) => [key, Array.from(valueSet)]),
+      ),
+      idToAliases: Object.fromEntries(
+        Object.entries(idToAliases).map(([key, valueSet]) => [key, Array.from(valueSet)]),
+      ),
+    };
+  }
+  
+  return lookups;
 }
 

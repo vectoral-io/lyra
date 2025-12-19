@@ -23,7 +23,7 @@ describe('LyraBundle - Core Functionality', () => {
     const sampleStatus = tickets[0].status;
 
     const result = bundle.query({
-      facets: {
+      equal: {
         customerId: sampleCustomer,
         priority: samplePriority,
         status: sampleStatus,
@@ -78,10 +78,10 @@ describe('LyraBundle - Core Functionality', () => {
     const loaded = LyraBundle.load<Ticket>(json);
 
     const result = loaded.query({
-      facets: { status: 'open' },
+      equal: { status: 'open' },
     });
 
-    const original = bundle.query({ facets: { status: 'open' } });
+    const original = bundle.query({ equal: { status: 'open' } });
 
     expect(result.total).toBe(original.total);
     expect(result.items.length).toBe(original.items.length);
@@ -96,18 +96,18 @@ describe('LyraBundle - Core Functionality', () => {
     const sampleCustomer = tickets[0].customerId;
     const sampleProductArea = tickets[0].productArea;
 
-    const facets = {
+    const equalFilters = {
       customerId: sampleCustomer,
       productArea: sampleProductArea,
     } as const;
 
-    const byBundle = bundle.query({ facets });
+    const byBundle = bundle.query({ equal: equalFilters });
 
     // Naive baseline
     const expected = tickets.filter(
       (ticket) =>
-        ticket.customerId === facets.customerId &&
-        ticket.productArea === facets.productArea,
+        ticket.customerId === equalFilters.customerId &&
+        ticket.productArea === equalFilters.productArea,
     );
 
     expect(byBundle.total).toBe(expected.length);
@@ -122,7 +122,7 @@ describe('LyraBundle - Core Functionality', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     const result = bundle.query({
-      facets: {
+      equal: {
         status: 'open',
       },
       includeFacetCounts: true,
@@ -179,8 +179,8 @@ describe('LyraBundle - Core Functionality', () => {
     const bundle1 = await LyraBundle.create<Ticket>(tickets, config);
     const bundle2 = await createBundle<Ticket>(tickets, config);
 
-    const result1 = bundle1.query({ facets: { status: 'open' } });
-    const result2 = bundle2.query({ facets: { status: 'open' } });
+    const result1 = bundle1.query({ equal: { status: 'open' } });
+    const result2 = bundle2.query({ equal: { status: 'open' } });
 
     expect(result1.total).toBe(result2.total);
     expect(result1.items.length).toBe(result2.items.length);
@@ -195,10 +195,10 @@ describe('LyraBundle - Core Functionality', () => {
     const loaded = LyraBundle.load<Ticket>(json);
 
     const result = loaded.query({
-      facets: { status: 'open' },
+      equal: { status: 'open' },
     });
 
-    const original = bundle.query({ facets: { status: 'open' } });
+    const original = bundle.query({ equal: { status: 'open' } });
 
     expect(result.total).toBe(original.total);
     expect(result.items.length).toBe(original.items.length);
@@ -225,10 +225,10 @@ describe('LyraBundle - Core Functionality', () => {
       LyraBundle.load<Ticket>(jsonWithEmptyFields);
     }).toThrow('Invalid bundle: fields array must not be empty');
 
-    // Invalid version
+    // Invalid version (v2 bundles should load fine)
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
     const json = bundle.toJSON();
-    json.manifest.version = '2.0.0';
+    json.manifest.version = '3.0.0';
 
     expect(() => {
       LyraBundle.load<Ticket>(json);
@@ -270,7 +270,7 @@ describe('LyraBundle - Core Functionality', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     const result = bundle.query({
-      facets: { status: 'nonexistent' },
+      equal: { status: 'nonexistent' },
     });
 
     expect(result.total).toBe(0);
@@ -283,7 +283,7 @@ describe('LyraBundle - Core Functionality', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     const result = bundle.query({
-      facets: { priority: ['high', 'urgent'] },
+      equal: { priority: ['high', 'urgent'] },
     });
 
     // Naive baseline
@@ -406,7 +406,7 @@ describe('LyraBundle - Core Functionality', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     const result = bundle.query({
-      facets: {
+      equal: {
         status: 'open',
       },
       // includeFacetCounts is false by default
@@ -421,7 +421,7 @@ describe('LyraBundle - Core Functionality', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     const result = bundle.query({
-      facets: {
+      equal: {
         nonexistentField: 'value',
       },
     });
@@ -498,7 +498,7 @@ describe('Simple Bundle Config', () => {
     const tickets = generateTicketArray(100);
     const simpleConfig: SimpleBundleConfig<Ticket> = {
       datasetId: 'tickets-simple',
-      facets: ['priority', 'status'],
+      equal: ['priority', 'status'],
       ranges: ['createdAt'],
     };
 
@@ -519,7 +519,7 @@ describe('Simple Bundle Config', () => {
     const simpleConfig: SimpleBundleConfig<Ticket> = {
       datasetId: 'tickets-simple',
       id: 'id',
-      facets: ['customerId', 'priority'],
+      equal: ['customerId', 'priority'],
       ranges: ['slaHours'],
     };
 
@@ -537,7 +537,7 @@ describe('Simple Bundle Config', () => {
     const tickets = generateTicketArray(100);
     const simpleConfig: SimpleBundleConfig<Ticket> = {
       datasetId: 'tickets-simple',
-      facets: ['priority', 'status', 'isEscalated'],
+      equal: ['priority', 'status', 'isEscalated'],
       ranges: ['slaHours', 'createdAt'],
       inferTypes: 'runtime',
     };
@@ -563,7 +563,7 @@ describe('Simple Bundle Config', () => {
     const tickets = generateTicketArray(100);
     const simpleConfig: SimpleBundleConfig<Ticket> = {
       datasetId: 'tickets-simple',
-      facets: ['priority', 'isEscalated'],
+      equal: ['priority', 'isEscalated'],
       ranges: ['slaHours'],
       inferTypes: 'none',
     };
@@ -583,7 +583,7 @@ describe('Simple Bundle Config', () => {
     const tickets = generateTicketArray(100);
     const simpleConfig: SimpleBundleConfig<Ticket> = {
       datasetId: 'tickets-simple',
-      facets: ['priority', 'status'],
+      equal: ['priority', 'status'],
       ranges: ['createdAt'],
       // autoMeta defaults to true
     };
@@ -614,7 +614,7 @@ describe('Simple Bundle Config', () => {
     const tickets = generateTicketArray(100);
     const simpleConfig: SimpleBundleConfig<Ticket> = {
       datasetId: 'tickets-simple',
-      facets: ['priority', 'status'],
+      equal: ['priority', 'status'],
       ranges: ['createdAt'],
       autoMeta: false,
     };
@@ -645,7 +645,7 @@ describe('Simple Bundle Config', () => {
 
     const simpleConfig: SimpleBundleConfig<typeof ticketsWithComplex[0]> = {
       datasetId: 'tickets-complex',
-      facets: ['priority'],
+      equal: ['priority'],
       // autoMeta defaults to true
     };
 
@@ -666,7 +666,7 @@ describe('Simple Bundle Config', () => {
     const tickets = generateTicketArray(100);
     const simpleConfig: SimpleBundleConfig<Ticket> = {
       datasetId: 'tickets-simple',
-      facets: ['priority'],
+      equal: ['priority'],
       meta: ['customerName', 'ownerTeam'],
     };
 
@@ -688,7 +688,7 @@ describe('Simple Bundle Config', () => {
 
     const simpleConfig: SimpleBundleConfig<Ticket> = {
       datasetId: 'tickets-simple',
-      facets: ['priority', 'status', 'customerId'],
+      equal: ['priority', 'status', 'customerId'],
       ranges: ['createdAt'],
     };
 
@@ -696,7 +696,7 @@ describe('Simple Bundle Config', () => {
     const bundleExplicit = await createBundle(tickets, testConfig);
 
     const query = {
-      facets: {
+      equal: {
         priority: 'high',
         status: 'open',
       },
@@ -733,7 +733,7 @@ describe('Simple Bundle Config', () => {
   it('handles empty items array gracefully', async () => {
     const simpleConfig: SimpleBundleConfig<Ticket> = {
       datasetId: 'empty',
-      facets: ['priority'],
+      equal: ['priority'],
     };
 
     const bundle = await createBundle([], simpleConfig);
@@ -754,14 +754,14 @@ describe('Simple Bundle Config', () => {
     // Test simple config overload
     const simpleConfig: SimpleBundleConfig<Ticket> = {
       datasetId: 'test',
-      facets: ['priority'],
+      equal: ['priority'],
     };
     const simpleBundle = await createBundle(tickets, simpleConfig);
     expect(simpleBundle).toBeDefined();
 
     // Both should work
-    const result1 = explicitBundle.query({ facets: { priority: 'high' } });
-    const result2 = simpleBundle.query({ facets: { priority: 'high' } });
+    const result1 = explicitBundle.query({ equal: { priority: 'high' } });
+    const result2 = simpleBundle.query({ equal: { priority: 'high' } });
     expect(result1.total).toBe(result2.total);
   });
 });

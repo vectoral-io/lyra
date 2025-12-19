@@ -45,7 +45,7 @@ describe('getFacetSummary', () => {
 
     // Get summary with customer filter
     const filteredSummary = bundle.getFacetSummary('status', {
-      facets: { customerId: sampleCustomer },
+      equal: { customerId: sampleCustomer },
     });
 
     expect(filteredSummary.field).toBe('status');
@@ -290,7 +290,7 @@ describe('getFacetSummary', () => {
     const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
 
     const summary = bundle.getFacetSummary('status', {
-      facets: { customerId: sampleCustomer },
+      equal: { customerId: sampleCustomer },
       ranges: {
         createdAt: { min: oneWeekAgo, max: now },
       },
@@ -301,7 +301,7 @@ describe('getFacetSummary', () => {
 
     // Verify counts are correct by comparing with direct query
     const queryResult = bundle.query({
-      facets: { customerId: sampleCustomer },
+      equal: { customerId: sampleCustomer },
       ranges: {
         createdAt: { min: oneWeekAgo, max: now },
       },

@@ -1,58 +1,117 @@
 /**
- * Primitive values that can be used in facet filters.
+ * Scalar values that can be used in query filters.
+ * Includes null for explicit null checks.
  */
-export type FacetPrimitive = string | number | boolean;
+export type Scalar = string | number | boolean | null;
 
 /**
- * A facet value can be a single primitive or an array of primitives.
- */
-export type FacetValue = FacetPrimitive | FacetPrimitive[];
-
-/**
- * Range filter for numeric or date fields.
+ * Range bound for numeric or date fields.
  * 
  * Range semantics:
  * - `min` and `max` must be numbers
  * - For date fields, pass epoch milliseconds (e.g., `Date.parse(isoString)`)
  * - Items are included if their value is >= `min` (if provided) and <= `max` (if provided)
  */
-export type RangeFilter = {
+export interface RangeBound {
   min?: number;
   max?: number;
-};
+}
 
 /**
- * Mode for combining multiple facet filter objects.
- * - 'union': Items matching ANY of the facet objects (OR logic)
- * - 'intersection': Items matching ALL of the facet objects (AND logic)
- */
-export type FacetMode = 'union' | 'intersection';
-
-/**
- * Mode for combining multiple range filter objects.
- * - 'union': Items matching ANY of the range objects (OR logic)
- * - 'intersection': Items matching ALL of the range objects (AND logic)
- */
-export type RangeMode = 'union' | 'intersection';
-
-/**
- * Query parameters for executing facet and range filters against a bundle.
+ * Query parameters for executing filters against a Lyra bundle (v2).
  * 
- * Facets and ranges can be provided as:
- * - A single object (traditional format)
- * - An array of objects (for multi-condition queries)
+ * **Null Handling:**
+ * - `equal: { field: null }` is normalized to `isNull: ['field']` during query processing
+ * - `notEqual: { field: null }` is normalized to `isNotNull: ['field']`
+ * - Arrays containing null (e.g., `equal: { field: ['A', null] }`) are split into value filters + null checks
  * 
- * When using arrays, the `facetMode` and `rangeMode` parameters control
- * how the conditions are combined (union/OR by default).
+ * **All filter operators are intersected (AND logic).**
+ * 
+ * @example
+ * ```ts
+ * // Simple equality
+ * bundle.query({ equal: { status: 'open' } });
+ * 
+ * // IN semantics with array
+ * bundle.query({ equal: { priority: ['high', 'urgent'] } });
+ * 
+ * // Null checks (inline or explicit)
+ * bundle.query({ equal: { category: null } }); // Normalized to isNull
+ * bundle.query({ isNull: ['category'] }); // Explicit
+ * 
+ * // Exclusion filters
+ * bundle.query({ notEqual: { status: 'closed' } });
+ * 
+ * // Mixed operators
+ * bundle.query({
+ *   equal: { zone_name: 'Zone A' }, // Alias field
+ *   isNotNull: ['wip_trade'],
+ *   ranges: { createdAt: { min: Date.parse('2025-01-01') } },
+ * });
+ * ```
  */
 export interface LyraQuery {
-  facets?: Record<string, FacetValue> | Array<Record<string, FacetValue>>;
-  ranges?: Record<string, RangeFilter> | Array<Record<string, RangeFilter>>;
-  facetMode?: FacetMode;
-  rangeMode?: RangeMode;
+  /**
+   * Equality filters.
+   * - Single scalar (non-null) => exact match
+   * - Array => IN semantics
+   * - null values are normalized to `isNull` during query processing
+   * 
+   * Works with both canonical fields and alias fields (v2).
+   */
+  equal?: Record<string, Scalar | Scalar[]>;
+
+  /**
+   * Inequality filters.
+   * - Single scalar (non-null) => value != x (and NOT NULL)
+   * - Array => value NOT IN [...]
+   * - null values are normalized to `isNotNull` during query processing
+   */
+  notEqual?: Record<string, Scalar | Scalar[]>;
+
+  /**
+   * Range filters for numeric or date fields.
+   */
+  ranges?: Record<string, RangeBound>;
+
+  /**
+   * Fields that must be NULL.
+   * Implemented as `field IS NULL` filter.
+   */
+  isNull?: string[];
+
+  /**
+   * Fields that must NOT be NULL.
+   * Implemented as `field IS NOT NULL` filter.
+   */
+  isNotNull?: string[];
+
+  /**
+   * Maximum number of items to return.
+   */
   limit?: number;
+
+  /**
+   * Number of items to skip (for pagination).
+   */
   offset?: number;
+
+  /**
+   * Whether to include facet counts in the result.
+   * Facet counts are computed over the filtered result set.
+   */
   includeFacetCounts?: boolean;
+
+  /**
+   * Enrich results with human-readable alias values (v2).
+   * - Defaults to `true` if aliases are available in the bundle
+   * - `true`: include all alias fields
+   * - `string[]`: include only specified alias fields
+   * - `false`: disable enrichment (opt-out)
+   * 
+   * Enriched values are returned in a parallel `enrichedAliases` array.
+   */
+  enrichAliases?: boolean | string[];
 }
 
 /**
@@ -71,7 +130,7 @@ export interface LyraSnapshotInfo {
   indexVersion: string;
 }
 
-export type FieldKind = 'id' | 'facet' | 'range' | 'meta';
+export type FieldKind = 'id' | 'facet' | 'range' | 'meta' | 'alias';
 
 export type FieldType = 'string' | 'number' | 'boolean' | 'date';
 
@@ -84,6 +143,32 @@ export interface LyraField {
   kind: FieldKind;
   type: FieldType;
   ops: Array<'eq' | 'in' | 'between' | 'gte' | 'lte'>;
+  
+  /**
+   * For alias fields (kind='alias'): the canonical facet field this alias resolves to.
+   * Example: If `zone_name` is an alias for `zone_id`, then `aliasTarget = 'zone_id'`.
+   */
+  aliasTarget?: string;
+}
+
+/**
+ * Lookup table for alias resolution.
+ * Auto-generated during bundle creation from item data.
+ * @internal
+ */
+export interface LookupTable {
+  /**
+   * Maps alias values to canonical IDs.
+   * Example: { "Zone A": ["Z-001", "Z-007"], "Zone B": ["Z-002"] }
+   */
+  aliasToIds: Record<string, string[]>;
+
+  /**
+   * Reverse lookup: maps canonical IDs to alias values.
+   * Used for result enrichment.
+   * Example: { "Z-001": ["Zone A"], "Z-007": ["Zone A"], "Z-002": ["Zone B"] }
+   */
+  idToAliases: Record<string, string[]>;
 }
 
 /**
@@ -95,9 +180,19 @@ export interface LyraManifest {
   builtAt: string;
   fields: LyraField[];
   capabilities: {
+    /** Canonical facet field names (indexed for filtering) */
     facets: string[];
+    /** Range field names (indexed for numeric/date filtering) */
     ranges: string[];
+    /** Alias field names (resolve to canonical facets via lookups) */
+    aliases?: string[];
   };
+  /**
+   * Lookup tables for alias resolution, keyed by alias field name.
+   * Auto-generated during bundle creation. Not configurable by users.
+   * @internal
+   */
+  lookups?: Record<string, LookupTable>;
 }
 
 /**
@@ -107,11 +202,34 @@ export interface LyraResult<Item = unknown> {
   items: Item[];
   total: number;
   applied: {
-    facets?: LyraQuery['facets'];
+    equal?: LyraQuery['equal'];
+    notEqual?: LyraQuery['notEqual'];
     ranges?: LyraQuery['ranges'];
+    isNull?: LyraQuery['isNull'];
+    isNotNull?: LyraQuery['isNotNull'];
   };
   facets?: FacetCounts;
   snapshot: LyraSnapshotInfo;
+  
+  /**
+   * Enriched alias values for each item (v2).
+   * Parallel array where `enrichedAliases[i]` contains alias values for `items[i]`.
+   * Each entry maps alias field name → array of human-readable values.
+   * 
+   * Only present if `enrichAliases` was requested in the query.
+   * 
+   * @example
+   * ```ts
+   * const result = bundle.query({
+   *   equal: { zone_id: 'Z-001' },
+   *   enrichAliases: ['zone_name'],
+   * });
+   * 
+   * // result.items[0] = { zone_id: 'Z-001', ... }
+   * // result.enrichedAliases[0] = { zone_name: ['Zone A'] }
+   * ```
+   */
+  enrichedAliases?: Array<Record<string, string[]>>;
 }
 
 /**
@@ -120,6 +238,11 @@ export interface LyraResult<Item = unknown> {
 export interface FieldDefinition {
   kind: FieldKind;
   type: FieldType;
+  /**
+   * For alias fields: the canonical field this alias resolves to.
+   * Example: If `zone_name` is an alias for `zone_id`, then `targetField = 'zone_id'`.
+   */
+  targetField?: string;
 }
 
 type StringKeys<T> = Extract<keyof T, string>;
@@ -173,8 +296,13 @@ export interface SimpleBundleConfig<TItem extends Record<string, unknown>> {
   id?: FieldName<TItem>;
   /**
    * Fields to index as facets (for equality filtering).
+   * @deprecated Use `equal` instead (v2)
    */
   facets?: FieldName<TItem>[];
+  /**
+   * Fields to index as facets (for equality filtering) - v2 syntax.
+   */
+  equal?: FieldName<TItem>[];
   /**
    * Fields to index as ranges (for numeric/date range filtering).
    * Must be numeric or date values.
@@ -184,6 +312,12 @@ export interface SimpleBundleConfig<TItem extends Record<string, unknown>> {
    * Fields to include in manifest as meta (non-indexed, schema-visible).
    */
   meta?: FieldName<TItem>[];
+  /**
+   * Alias fields: aliasField → canonicalField.
+   * Lookups are auto-generated from item data during bundle creation.
+   * Multiple aliases can target the same canonical field.
+   */
+  aliases?: Record<string, FieldName<TItem>>;
   /**
    * How aggressively to infer field types.
    * - 'runtime': Inspect actual values in the data (default)

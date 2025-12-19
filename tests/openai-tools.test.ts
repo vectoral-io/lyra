@@ -4,7 +4,7 @@ import type { LyraManifest } from '../src';
 
 describe('buildOpenAiTool', () => {
   const minimalManifest: LyraManifest = {
-    version: '1.0.0',
+    version: '2.0.0',
     datasetId: 'test-dataset',
     builtAt: '2025-01-01T00:00:00Z',
     fields: [
@@ -44,7 +44,7 @@ describe('buildOpenAiTool', () => {
     const tool = buildOpenAiTool(minimalManifest, { name: 'lyraQuery' });
 
     expect(tool.function.description).toBe(
-      'Query dataset "test-dataset" using facet and range filters',
+      'Query dataset "test-dataset" using explicit filter operators (equal, notEqual, ranges, isNull, isNotNull).',
     );
   });
 
@@ -59,33 +59,36 @@ describe('buildOpenAiTool', () => {
     expect(parameters.additionalProperties).toBe(false);
   });
 
-  it('should include facets, ranges, limit, offset, and includeFacetCounts in parameters', () => {
+  it('should include equal, notEqual, ranges, isNull, isNotNull, limit, offset, and includeFacetCounts in parameters', () => {
     const tool = buildOpenAiTool(minimalManifest, { name: 'lyraQuery' });
     const parameters = tool.function.parameters as Record<string, unknown>;
     const properties = parameters.properties as Record<string, unknown>;
 
-    expect(properties.facets).toBeDefined();
+    expect(properties.equal).toBeDefined();
+    expect(properties.notEqual).toBeDefined();
     expect(properties.ranges).toBeDefined();
+    expect(properties.isNull).toBeDefined();
+    expect(properties.isNotNull).toBeDefined();
     expect(properties.limit).toBeDefined();
     expect(properties.offset).toBeDefined();
     expect(properties.includeFacetCounts).toBeDefined();
   });
 
-  it('should use single-or-array mode for facets (default)', () => {
+  it('should support scalar or array values for equal fields', () => {
     const tool = buildOpenAiTool(minimalManifest, { name: 'lyraQuery' });
     const parameters = tool.function.parameters as Record<string, unknown>;
     const properties = parameters.properties as Record<string, unknown>;
-    const facets = properties.facets as Record<string, unknown>;
-    const facetProperties = facets.properties as Record<string, unknown>;
-    const statusSchema = facetProperties.status as Record<string, unknown>;
+    const equal = properties.equal as Record<string, unknown>;
+    const equalProperties = equal.properties as Record<string, unknown>;
+    const statusSchema = equalProperties.status as Record<string, unknown>;
 
     expect(statusSchema.anyOf).toBeDefined();
     expect(Array.isArray(statusSchema.anyOf)).toBe(true);
   });
 
-  it('should include all facet fields from manifest in parameters', () => {
+  it('should include all facet fields from manifest in equal parameters', () => {
     const manifest: LyraManifest = {
-      version: '1.0.0',
+      version: '2.0.0',
       datasetId: 'test',
       builtAt: '2025-01-01T00:00:00Z',
       fields: [
@@ -103,12 +106,12 @@ describe('buildOpenAiTool', () => {
     const tool = buildOpenAiTool(manifest, { name: 'query' });
     const parameters = tool.function.parameters as Record<string, unknown>;
     const properties = parameters.properties as Record<string, unknown>;
-    const facets = properties.facets as Record<string, unknown>;
-    const facetProperties = facets.properties as Record<string, unknown>;
+    const equal = properties.equal as Record<string, unknown>;
+    const equalProperties = equal.properties as Record<string, unknown>;
 
-    expect(facetProperties.status).toBeDefined();
-    expect(facetProperties.priority).toBeDefined();
-    expect(facetProperties.count).toBeDefined();
+    expect(equalProperties.status).toBeDefined();
+    expect(equalProperties.priority).toBeDefined();
+    expect(equalProperties.count).toBeDefined();
   });
 
   it('should include all range fields from manifest in parameters', () => {
