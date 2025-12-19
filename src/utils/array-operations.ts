@@ -1,4 +1,4 @@
-import type { FieldType, RangeFilter } from '../types';
+import type { FieldType, RangeBound } from '../types';
 
 const TWO_ARRAYS = 2;
 
@@ -193,7 +193,7 @@ function toNumericRangeValue(raw: unknown, fieldType: FieldType): number | null 
 export function filterIndicesByRange<T extends Record<string, unknown>>(
   indices: number[],
   items: T[],
-  ranges: Record<string, RangeFilter>,
+  ranges: Record<string, RangeBound>,
   fieldTypes: Record<string, FieldType>,
   target: number[],
 ): void {
