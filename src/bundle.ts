@@ -132,11 +132,12 @@ export class LyraBundle<T extends Record<string, unknown>> {
     const protectedFields: string[] = [];
     // Add ID field
     const idField = config.fields && Object.keys(config.fields).find(
-      fieldName => config.fields[fieldName as keyof typeof config.fields]?.kind === 'id'
+      fieldName => config.fields[fieldName as keyof typeof config.fields]?.kind === 'id',
     );
     if (idField) {
       protectedFields.push(idField);
-    } else {
+    }
+    else {
       // Fallback to auto-detected 'id'
       protectedFields.push('id');
     }

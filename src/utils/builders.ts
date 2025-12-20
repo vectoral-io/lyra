@@ -324,7 +324,8 @@ export function filterItemFields<T extends Record<string, unknown>>(
           filtered[field] = item[field];
         }
       }
-    } else {
+    }
+    else {
       // Default mode: include all except excluded
       for (const [key, value] of Object.entries(item)) {
         if (!fieldsToExclude.has(key)) {
