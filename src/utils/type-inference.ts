@@ -207,6 +207,8 @@ export function fromSimpleConfig<T extends Record<string, unknown>>(
   return {
     datasetId: cfg.datasetId,
     fields,
+    includeFields: cfg.includeFields,
+    excludeFields: cfg.excludeFields,
   };
 }
 

@@ -255,8 +255,8 @@ describe('LyraBundle - V2 Aliases', () => {
 
     // Items are enriched directly with only requested alias field
     expect(result.items[0].zone_name).toEqual(['Zone A']);
-    // zone_label exists in original item but wasn't enriched, so it's still the original value
-    expect(result.items[0].zone_label).toBe('First Floor');
+    // zone_label is excluded from bundle items (alias fields are automatically excluded)
+    expect(result.items[0].zone_label).toBeUndefined();
     
     // enrichedAliases only contains requested fields
     expect(result.enrichedAliases).toBeDefined();
@@ -462,6 +462,93 @@ describe('LyraBundle - V2 Aliases', () => {
     expect(enriched[0].zone_name).toEqual(['Zone A']);
     expect(enriched[10].zone_name).toEqual(['Zone A']);
     expect(enriched[1].zone_name).toEqual(['Zone B']);
+  });
+
+  it('excludes alias fields from bundle items', async () => {
+    const items = [
+      { id: '1', zone_id: 'Z-001', zone_name: 'Zone A' },
+    ];
+    const bundle = await createBundle(items, {
+      datasetId: 'test',
+      facets: ['zone_id'],
+      aliases: {
+        zone_name: 'zone_id',
+      },
+    });
+    
+    // Alias field should not be in stored items
+    expect(bundle.items[0].zone_name).toBeUndefined();
+    expect(bundle.items[0].zone_id).toBe('Z-001');
+    
+    // But queries should still work
+    const result = bundle.query({ equal: { zone_name: 'Zone A' } });
+    expect(result.items.length).toBe(1);
+  });
+
+  it('respects includeFields configuration', async () => {
+    const items = [
+      { id: '1', zone_id: 'Z-001', zone_name: 'Zone A', extra: 'data' },
+    ];
+    const bundle = await createBundle(items, {
+      datasetId: 'test',
+      facets: ['zone_id'],
+      aliases: { zone_name: 'zone_id' },
+      includeFields: ['zone_id'], // Only include zone_id
+    });
+    
+    expect(bundle.items[0].zone_id).toBe('Z-001');
+    expect(bundle.items[0].zone_name).toBeUndefined(); // Alias excluded
+    expect(bundle.items[0].extra).toBeUndefined(); // Not in includeFields
+    expect(bundle.items[0].id).toBe('1'); // Protected field always included
+  });
+
+  it('respects excludeFields configuration', async () => {
+    const items = [
+      { id: '1', zone_id: 'Z-001', zone_name: 'Zone A', extra: 'data', meta: 'info' },
+    ];
+    const bundle = await createBundle(items, {
+      datasetId: 'test',
+      facets: ['zone_id'],
+      aliases: { zone_name: 'zone_id' },
+      excludeFields: ['extra'], // Exclude extra field
+    });
+    
+    expect(bundle.items[0].zone_id).toBe('Z-001'); // Facet included
+    expect(bundle.items[0].zone_name).toBeUndefined(); // Alias excluded
+    expect(bundle.items[0].extra).toBeUndefined(); // Explicitly excluded
+    expect(bundle.items[0].meta).toBe('info'); // Not excluded, so included
+  });
+
+  it('excludeFields takes precedence over includeFields', async () => {
+    const items = [
+      { id: '1', zone_id: 'Z-001', extra: 'data' },
+    ];
+    const bundle = await createBundle(items, {
+      datasetId: 'test',
+      facets: ['zone_id'],
+      includeFields: ['zone_id', 'extra'],
+      excludeFields: ['extra'], // Exclude takes precedence
+    });
+    
+    expect(bundle.items[0].zone_id).toBe('Z-001');
+    expect(bundle.items[0].extra).toBeUndefined(); // Excluded despite being in includeFields
+  });
+
+  it('cannot exclude protected fields (id, facets, ranges)', async () => {
+    const items = [
+      { id: '1', zone_id: 'Z-001', createdAt: 1234567890 },
+    ];
+    const bundle = await createBundle(items, {
+      datasetId: 'test',
+      facets: ['zone_id'],
+      ranges: ['createdAt'],
+      excludeFields: ['id', 'zone_id', 'createdAt'], // Try to exclude protected fields
+    });
+    
+    // Protected fields should still be present
+    expect(bundle.items[0].id).toBe('1');
+    expect(bundle.items[0].zone_id).toBe('Z-001');
+    expect(bundle.items[0].createdAt).toBe(1234567890);
   });
 });
 

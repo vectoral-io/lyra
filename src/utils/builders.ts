@@ -268,3 +268,72 @@ export function buildLookupTablesFromData<T>(
   return lookups;
 }
 
+/**
+ * Filter items to include/exclude specific fields.
+ * Protected fields (id, facets, ranges) are always included.
+ * Alias fields are always excluded.
+ * @internal
+ */
+export function filterItemFields<T extends Record<string, unknown>>(
+  items: T[],
+  options: {
+    includeFields?: string[];
+    excludeFields?: string[];
+    protectedFields: string[]; // id, facets, ranges
+    aliasFields: string[];
+  },
+): T[] {
+  const { includeFields, excludeFields, protectedFields, aliasFields } = options;
+  
+  // Always exclude alias fields
+  const fieldsToExclude = new Set(aliasFields);
+  if (excludeFields) {
+    for (const field of excludeFields) {
+      // Don't exclude protected fields even if they're in excludeFields
+      if (!protectedFields.includes(field)) {
+        fieldsToExclude.add(field);
+      }
+    }
+  }
+  
+  // Determine which fields to keep
+  const fieldsToKeep = new Set<string>();
+  
+  // Always include protected fields
+  for (const field of protectedFields) {
+    fieldsToKeep.add(field);
+  }
+  
+  if (includeFields) {
+    // Include mode: only includeFields + protected fields
+    for (const field of includeFields) {
+      // Only add if not excluded (excludeFields takes precedence)
+      if (!fieldsToExclude.has(field)) {
+        fieldsToKeep.add(field);
+      }
+    }
+  }
+  
+  return items.map(item => {
+    const filtered: Record<string, unknown> = {};
+    
+    if (includeFields) {
+      // Include mode: only specified fields (protected fields already in set)
+      for (const field of fieldsToKeep) {
+        if (item[field] !== undefined) {
+          filtered[field] = item[field];
+        }
+      }
+    } else {
+      // Default mode: include all except excluded
+      for (const [key, value] of Object.entries(item)) {
+        if (!fieldsToExclude.has(key)) {
+          filtered[key] = value;
+        }
+      }
+    }
+    
+    return filtered as T;
+  });
+}
+

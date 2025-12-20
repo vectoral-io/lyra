@@ -263,6 +263,18 @@ export interface CreateBundleConfig<TItem extends Record<string, unknown>> {
   fields: {
     [K in StringKeys<TItem>]?: FieldDefinition;
   };
+  /**
+   * Fields to explicitly include in bundle items.
+   * If specified, only these fields (plus id, facets, ranges) will be included.
+   * Exclude takes precedence if both includeFields and excludeFields are specified.
+   */
+  includeFields?: FieldName<TItem>[];
+  /**
+   * Fields to explicitly exclude from bundle items.
+   * Alias fields are always excluded automatically.
+   * Protected fields (id, facets, ranges) cannot be excluded.
+   */
+  excludeFields?: FieldName<TItem>[];
 }
 
 /**
@@ -331,6 +343,18 @@ export interface SimpleBundleConfig<TItem extends Record<string, unknown>> {
    * Complex/nested fields are always skipped.
    */
   autoMeta?: boolean;
+  /**
+   * Fields to explicitly include in bundle items.
+   * If specified, only these fields (plus id, facets, ranges) will be included.
+   * Exclude takes precedence if both includeFields and excludeFields are specified.
+   */
+  includeFields?: FieldName<TItem>[];
+  /**
+   * Fields to explicitly exclude from bundle items.
+   * Alias fields are always excluded automatically.
+   * Protected fields (id, facets, ranges) cannot be excluded.
+   */
+  excludeFields?: FieldName<TItem>[];
 }
 
 /**

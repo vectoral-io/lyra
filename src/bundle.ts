@@ -14,7 +14,7 @@ import type {
   SimpleBundleConfig,
 } from './types';
 import * as arrayOperations from './utils/array-operations';
-import { buildFacetIndex, buildLookupTablesFromData, buildManifest } from './utils/builders';
+import { buildFacetIndex, buildLookupTablesFromData, buildManifest, filterItemFields } from './utils/builders';
 import { fromSimpleConfig } from './utils/type-inference';
 
 
@@ -106,14 +106,16 @@ export class LyraBundle<T extends Record<string, unknown>> {
 
     const manifest = buildManifest(config);
     
-    // Auto-generate lookup tables if aliases are present
+    // Auto-generate lookup tables if aliases are present (use original items with alias fields)
     let finalManifest = manifest;
+    const aliasFields: string[] = [];
     if (manifest.capabilities.aliases && manifest.capabilities.aliases.length > 0) {
       // Extract alias mappings from config
       const aliasMappings: Record<string, string> = {};
       for (const field of manifest.fields) {
         if (field.kind === 'alias' && field.aliasTarget) {
           aliasMappings[field.name] = field.aliasTarget;
+          aliasFields.push(field.name);
         }
       }
       
@@ -126,8 +128,34 @@ export class LyraBundle<T extends Record<string, unknown>> {
       }
     }
     
-    const facetIndex = buildFacetIndex(items, finalManifest);
-    return new LyraBundle(items, finalManifest, facetIndex);
+    // Determine protected fields (id, facets, ranges)
+    const protectedFields: string[] = [];
+    // Add ID field
+    const idField = config.fields && Object.keys(config.fields).find(
+      fieldName => config.fields[fieldName as keyof typeof config.fields]?.kind === 'id'
+    );
+    if (idField) {
+      protectedFields.push(idField);
+    } else {
+      // Fallback to auto-detected 'id'
+      protectedFields.push('id');
+    }
+    // Add facet fields
+    protectedFields.push(...manifest.capabilities.facets);
+    // Add range fields
+    protectedFields.push(...manifest.capabilities.ranges);
+    
+    // Filter items based on field selection
+    const filteredItems = filterItemFields(items, {
+      includeFields: config.includeFields,
+      excludeFields: config.excludeFields,
+      protectedFields,
+      aliasFields,
+    });
+    
+    // Build facet index from filtered items
+    const facetIndex = buildFacetIndex(filteredItems, finalManifest);
+    return new LyraBundle(filteredItems, finalManifest, facetIndex);
   }
 
   /**
