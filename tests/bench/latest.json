@@ -1,53 +1,49 @@
 {
-  "generatedAt": "2025-12-19T22:03:26.957Z",
+  "generatedAt": "2026-04-15T14:49:47.365Z",
   "results": {
     "100k / single facet (customerId)": {
       "iterations": 5000,
-      "meanMs": 0.027487050000000006
+      "meanMs": 0.029661866600000003
     },
     "100k / multi-facet + ranges + pagination": {
       "iterations": 5000,
-      "meanMs": 0.8341114834
+      "meanMs": 0.9237854249999998
     },
     "10k / full feature set": {
       "iterations": 5000,
-      "meanMs": 0.17395182499999992
+      "meanMs": 0.20355678320000006
     },
     "100k / canonical facet (baseline)": {
       "iterations": 5000,
-      "meanMs": 0.026640083400000004
+      "meanMs": 0.029567499999999927
     },
     "100k / alias resolution": {
       "iterations": 5000,
-      "meanMs": 0.026441733399999976
+      "meanMs": 0.027151008399999954
     },
     "100k / enrichAliases: true": {
       "iterations": 5000,
-      "meanMs": 1.1155564249999999
+      "meanMs": 0.6842327331999999
     },
     "100k / enrichAliases: false": {
       "iterations": 5000,
-      "meanMs": 0.059110675000000265
+      "meanMs": 0.06308131659999999
     },
     "100k / alias + enrichment": {
       "iterations": 5000,
-      "meanMs": 1.1046279918000004
+      "meanMs": 0.6821791668000001
     },
     "100k / bundle creation with aliases": {
       "iterations": 5000,
-      "meanMs": 8.217044766599999
+      "meanMs": 10.783350558199999
     },
-    "100k / utility: getAliasMap (deduplicated)": {
+    "100k / utility: getAliasValues (single id)": {
       "iterations": 5000,
-      "meanMs": 0.00017572500000096624
-    },
-    "100k / utility: enrichResult": {
-      "iterations": 5000,
-      "meanMs": 0.00795063339999906
+      "meanMs": 0.0002723334000009345
     },
     "100k / utility: enrichItems": {
       "iterations": 5000,
-      "meanMs": 0.008396725000000152
+      "meanMs": 0.018054175000000394
     }
   }
 }

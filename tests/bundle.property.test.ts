@@ -255,6 +255,44 @@ describe('LyraBundle - Property Tests', () => {
   });
 
 
+  it('regression: 3+ equal filters combined with notEqual (scratch aliasing)', async () => {
+    // Guards the scratch-buffer aliasing bug where filterByExclusions wrote to the
+    // same array getEqualCandidates had returned, silently dropping candidates.
+    const items = Array.from({ length: 20 }, (_, i) => ({
+      id: String(i),
+      a: i % 2 === 0 ? 'x' : 'y',
+      b: i % 3 === 0 ? 'p' : 'q',
+      c: i % 5 === 0 ? 'm' : 'n',
+      d: i % 7 === 0 ? 'bad' : 'good',
+    }));
+
+    const bundle = await LyraBundle.create(items, {
+      datasetId: 'scratch-regression',
+      fields: {
+        id: { kind: 'id', type: 'string' },
+        a: { kind: 'facet', type: 'string' },
+        b: { kind: 'facet', type: 'string' },
+        c: { kind: 'facet', type: 'string' },
+        d: { kind: 'facet', type: 'string' },
+      },
+    });
+
+    const result = bundle.query({
+      equal: { a: 'x', b: 'q', c: 'n' }, // 3 equal filters
+      notEqual: { d: 'bad' },             // + notEqual triggers the aliasing path
+    });
+
+    const expected = items.filter(
+      (it) => it.a === 'x' && it.b === 'q' && it.c === 'n' && it.d !== 'bad',
+    );
+
+    expect(result.total).toBe(expected.length);
+    expect(result.items.map((i) => i.id).sort()).toEqual(
+      expected.map((i) => i.id).sort(),
+    );
+  });
+
+
   it('serialization preserves query results (load(toJSON(bundle)).query(q) === bundle.query(q))', async () => {
     await fc.assert(
       fc.asyncProperty(

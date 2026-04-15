@@ -206,8 +206,10 @@ describe('LyraBundle - V2 Query Operators', () => {
     const tickets = generateTicketArray(DATASET_SIZE);
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
-    const from = Date.parse('2025-10-01T00:00:00Z');
-    const to = Date.parse('2025-12-31T23:59:59Z');
+    // Derive range from the data so the test is not time-dependent.
+    const dates = tickets.map((t) => Date.parse(t.createdAt)).sort((a, b) => a - b);
+    const from = dates[0];
+    const to = dates[dates.length - 1];
 
     const result = bundle.query({
       ranges: {

@@ -49,9 +49,10 @@ describe('LyraBundle - Core Functionality', () => {
     const tickets = generateTicketArray(DATASET_SIZE);
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
-    // Use dates that should match some tickets in the generated data
-    const from = Date.parse('2025-10-01T00:00:00Z');
-    const to = Date.parse('2025-12-31T23:59:59Z');
+    // Derive range from the data so the test is not time-dependent.
+    const dates = tickets.map((t) => Date.parse(t.createdAt)).sort((a, b) => a - b);
+    const from = dates[0];
+    const to = dates[dates.length - 1];
 
     const result = bundle.query({
       ranges: {
@@ -225,10 +226,10 @@ describe('LyraBundle - Core Functionality', () => {
       LyraBundle.load<Ticket>(jsonWithEmptyFields);
     }).toThrow('Invalid bundle: fields array must not be empty');
 
-    // Invalid version (v2 bundles should load fine)
+    // Invalid version (only v3 is accepted)
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
     const json = bundle.toJSON();
-    json.manifest.version = '3.0.0';
+    json.manifest.version = '2.0.0';
 
     expect(() => {
       LyraBundle.load<Ticket>(json);
@@ -370,9 +371,10 @@ describe('LyraBundle - Core Functionality', () => {
     const tickets = generateTicketArray(DATASET_SIZE);
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
-    // Apply range filter
-    const from = Date.parse('2025-10-01T00:00:00Z');
-    const to = Date.parse('2025-12-31T23:59:59Z');
+    // Derive range from the data so the test is not time-dependent.
+    const dates = tickets.map((t) => Date.parse(t.createdAt)).sort((a, b) => a - b);
+    const from = dates[0];
+    const to = dates[dates.length - 1];
 
     const result = bundle.query({
       ranges: {

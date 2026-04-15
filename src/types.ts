@@ -18,8 +18,8 @@ export interface RangeBound {
 }
 
 /**
- * Query parameters for executing filters against a Lyra bundle (v2).
- * 
+ * Query parameters for executing filters against a Lyra bundle.
+ *
  * **Null Handling:**
  * - `equal: { field: null }` is normalized to `isNull: ['field']` during query processing
  * - `notEqual: { field: null }` is normalized to `isNotNull: ['field']`
@@ -56,8 +56,8 @@ export interface LyraQuery {
    * - Single scalar (non-null) => exact match
    * - Array => IN semantics
    * - null values are normalized to `isNull` during query processing
-   * 
-   * Works with both canonical fields and alias fields (v2).
+   *
+   * Works with both canonical fields and alias fields.
    */
   equal?: Record<string, Scalar | Scalar[]>;
 
@@ -103,13 +103,16 @@ export interface LyraQuery {
   includeFacetCounts?: boolean;
 
   /**
-   * Enrich results with human-readable alias values (v2).
-   * - Defaults to `true` if aliases are available in the bundle
-   * - `true`: include all alias fields
-   * - `string[]`: include only specified alias fields
-   * - `false`: disable enrichment (opt-out)
-   * 
-   * Enriched values are returned in a parallel `enrichedAliases` array.
+   * Enrich result items with human-readable alias values.
+   *
+   * Opt-in for performance — defaults to `false` even when the bundle declares aliases.
+   * - `true`: add all declared alias fields to each item.
+   * - `string[]`: add only the listed alias fields.
+   * - `false` / omitted: return items unchanged.
+   *
+   * When enabled, each item gains a `string[]` property per alias field (e.g.
+   * `item.zone_name = ['Zone A']`). Items without a canonical ID for a given alias
+   * are left untouched for that field.
    */
   enrichAliases?: boolean | string[];
 }
@@ -210,26 +213,6 @@ export interface LyraResult<Item = unknown> {
   };
   facets?: FacetCounts;
   snapshot: LyraSnapshotInfo;
-  
-  /**
-   * Enriched alias values for each item (v2).
-   * Parallel array where `enrichedAliases[i]` contains alias values for `items[i]`.
-   * Each entry maps alias field name → array of human-readable values.
-   * 
-   * Only present if `enrichAliases` was requested in the query.
-   * 
-   * @example
-   * ```ts
-   * const result = bundle.query({
-   *   equal: { zone_id: 'Z-001' },
-   *   enrichAliases: ['zone_name'],
-   * });
-   * 
-   * // result.items[0] = { zone_id: 'Z-001', ... }
-   * // result.enrichedAliases[0] = { zone_name: ['Zone A'] }
-   * ```
-   */
-  enrichedAliases?: Array<Record<string, string[]>>;
 }
 
 /**
@@ -263,18 +246,6 @@ export interface CreateBundleConfig<TItem extends Record<string, unknown>> {
   fields: {
     [K in StringKeys<TItem>]?: FieldDefinition;
   };
-  /**
-   * Fields to explicitly include in bundle items.
-   * If specified, only these fields (plus id, facets, ranges) will be included.
-   * Exclude takes precedence if both includeFields and excludeFields are specified.
-   */
-  includeFields?: FieldName<TItem>[];
-  /**
-   * Fields to explicitly exclude from bundle items.
-   * Alias fields are always excluded automatically.
-   * Protected fields (id, facets, ranges) cannot be excluded.
-   */
-  excludeFields?: FieldName<TItem>[];
 }
 
 /**
@@ -308,11 +279,11 @@ export interface SimpleBundleConfig<TItem extends Record<string, unknown>> {
   id?: FieldName<TItem>;
   /**
    * Fields to index as facets (for equality filtering).
-   * @deprecated Use `equal` instead (v2)
+   * @deprecated Use `equal` instead.
    */
   facets?: FieldName<TItem>[];
   /**
-   * Fields to index as facets (for equality filtering) - v2 syntax.
+   * Fields to index as facets (for equality filtering).
    */
   equal?: FieldName<TItem>[];
   /**
@@ -343,18 +314,6 @@ export interface SimpleBundleConfig<TItem extends Record<string, unknown>> {
    * Complex/nested fields are always skipped.
    */
   autoMeta?: boolean;
-  /**
-   * Fields to explicitly include in bundle items.
-   * If specified, only these fields (plus id, facets, ranges) will be included.
-   * Exclude takes precedence if both includeFields and excludeFields are specified.
-   */
-  includeFields?: FieldName<TItem>[];
-  /**
-   * Fields to explicitly exclude from bundle items.
-   * Alias fields are always excluded automatically.
-   * Protected fields (id, facets, ranges) cannot be excluded.
-   */
-  excludeFields?: FieldName<TItem>[];
 }
 
 /**
@@ -376,10 +335,19 @@ export type FacetPostingLists = {
 };
 
 /**
- * Serialized bundle format (v1).
+ * Sorted posting lists of item indices with null/undefined for each indexed field.
+ * Built at bundle creation so isNull/isNotNull filters stay in the posting-list model.
+ * @internal
+ */
+export type NullPostingLists = Record<string, number[]>;
+
+/**
+ * Serialized bundle format (v3).
  */
 export type LyraBundleJSON<T = unknown> = {
   manifest: LyraManifest;
   items: T[];
   facetIndex: FacetPostingLists;
+  /** Null posting lists, keyed by field name. */
+  nullIndex: NullPostingLists;
 };

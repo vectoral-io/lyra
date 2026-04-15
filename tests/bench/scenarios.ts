@@ -170,30 +170,11 @@ export async function getScenarios(): Promise<Scenario[]> {
       },
     },
     {
-      name: '100k / utility: getAliasMap (deduplicated)',
+      name: '100k / utility: getAliasValues (single id)',
       setup: async () => {
-        const result = await bundle100kWithAliases.query({
-          equal: { customerId: 'C-ACME' },
-          limit: 100,
-        });
-        const uniqueIds = [...new Set(result.items.map(item => item.customerId))];
         return {
           run: () => {
-            bundle100kWithAliases.getAliasMap('customerName', uniqueIds);
-          },
-        };
-      },
-    },
-    {
-      name: '100k / utility: enrichResult',
-      setup: async () => {
-        const result = await bundle100kWithAliases.query({
-          equal: { customerId: 'C-ACME' },
-          limit: 100,
-        });
-        return {
-          run: () => {
-            bundle100kWithAliases.enrichResult(result, ['customerName']);
+            bundle100kWithAliases.getAliasValues('customerName', 'C-ACME');
           },
         };
       },

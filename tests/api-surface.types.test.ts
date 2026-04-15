@@ -66,7 +66,7 @@ describe('Public API Type Surface', () => {
 
     const bundle = await createBundle(tickets, config);
     const query: LyraQuery = {
-      facets: { status: 'open' },
+      equal: { status: 'open' },
       ranges: { createdAt: { min: Date.now() - 1000, max: Date.now() } },
       includeFacetCounts: true,
     };
@@ -101,7 +101,7 @@ describe('Public API Type Surface', () => {
   it('LyraBundle.load returns correct type', () => {
     const json: LyraBundleJSON<Ticket> = {
       manifest: {
-        version: '1.0.0',
+        version: '3.0.0',
         datasetId: 'test',
         builtAt: '2025-01-01T00:00:00Z',
         fields: [
@@ -115,6 +115,7 @@ describe('Public API Type Surface', () => {
       },
       items: [],
       facetIndex: {},
+      nullIndex: {},
     };
 
     const bundle = LyraBundle.load(json);
