@@ -5,6 +5,108 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0] - 2026-05-07
+
+### Added
+
+- **Columnar items inside the v4 binary container** (default for new bundles).
+  - String fields → dictionary-encoded UTF-8 string table + `Uint32Array` row → dict-id indices.
+  - Number / date fields → raw little-endian `Float64Array` bytes (8-byte aligned, zero-copy view when alignment permits).
+  - Boolean fields → packed bits (`(n + 7) / 8` bytes).
+  - Arrays / objects / mixed-type fields → per-row JSON byte ranges (json-fallback).
+  - Every column carries a 1-bit-per-row null bitmap so `null` survives round-trip distinct from `''` / `0` / `false`.
+- **`ItemStore<T>` abstraction** (`src/utils/item-store.ts`).
+  - `RowItemStore<T>` wraps `T[]` (used at `createBundle` time and after JSON / v4.0 binary loads).
+  - `ColumnarItemStore<T>` reads from columns lazily (used after v4.1 binary loads). Items are never materialized eagerly — only at the result boundary or on demand.
+- Hot-path query readers refactored to consume `ItemStore` via `getField` / `materializeRow` / `materializeMany`. No row-form mirror is kept in memory for columnar bundles.
+
+### Changed
+
+- `BUNDLE_VERSION` → `4.1.0`.
+- `serialize('binary')` defaults to columnar items. To produce row-form items inside a v4 container, call the lower-level `encodeV4(payload, { itemsFormat: 'json' })`.
+- `bundle.toJSON()` on a columnar-loaded bundle now materializes new row objects on demand. Reconstruction is field-equal to originals; object identity is not preserved (consistent with prior `enrichItems` behavior).
+
+### Performance
+
+Measured on a 300k-item anonymized `WorkItem` fixture with deeply-nested per-row `steps: Record<string, …>` payloads:
+
+| Metric | v3.1 JSON | v4.1 binary |
+|---|---|---|
+| Wire size (gzipped) | 49.3 MB | **43.6 MB** (12% smaller) |
+| Critical-path cold start | ~887 ms `JSON.parse` + 2 ms `load` | **~18 ms `loadBinary`** |
+| Speedup | — | **~49× faster** |
+
+Bench: `bun run tests/bench/realworld-bench.ts` (configurable via `REALWORLD_BENCH_ITEMS` / `REALWORLD_BENCH_SEED` / `REALWORLD_BENCH_RUNS`).
+
+### Documentation
+
+- New `docs/migration-v4.md` walking through v3 → v4 in three independent stages.
+- `docs/bundle-json-spec.md` extended with the v4 binary container format and v4.1 columnar items section.
+- README updated with binary serialization quick-start and headline measurements.
+
+[4.1.0]: https://github.com/vectoral-io/lyra/releases/tag/v4.1.0
+
+## [4.0.0] - 2026-05-07
+
+### Added
+
+- **Binary bundle container** (magic bytes `LYRA4`).
+  - `bundle.serialize('binary')` → `Uint8Array`.
+  - `LyraBundle.loadBinary<T>(bytes)` — explicit binary loader.
+  - `LyraBundle.load<T>(rawOrBytes)` autodetects: `Uint8Array` with `LYRA4` magic dispatches to `loadBinary`; plain object stays on the JSON path.
+  - Layout: 5-byte magic → `flags: u32 LE` → `header_len: u32 LE` → UTF-8 JSON header → 8-byte aligned body (items / facetIndex / nullIndex / rangeColumns).
+  - Range columns produce zero-copy `Float64Array` views when buffer alignment permits.
+  - Posting lists use delta + LEB128 varint encoding (raw bytes inside the binary container, base64 inside v3.1 JSON).
+- `BinaryWriter` / `BinaryReader` utilities (`src/utils/binary.ts`) — cursor, alignment, varint, length-prefixed UTF-8.
+- Negative-test coverage: wrong magic, truncated header, oversized `header_len`, unsupported `items.encoding`, unsupported `rangeColumns.dtype`.
+
+### Changed
+
+- `BUNDLE_VERSION` → `4.0.0`.
+- `validateManifest` now accepts `version` starting with `"3."` or `"4."`. v3 JSON bundles continue to load against v4 code indefinitely.
+
+### Compatibility
+
+- v3.x JSON readers cannot consume v4 binary buffers — clean rejection via magic mismatch.
+- v4 readers consume both v3 JSON and v4 binary.
+
+[4.0.0]: https://github.com/vectoral-io/lyra/releases/tag/v4.0.0
+
+## [3.1.0] - 2026-05-07
+
+### Added
+
+Optional, additive fields on `LyraBundleJSON` produced by `bundle.toJSON()`:
+
+- `rangeColumns: Record<string, { encoding: 'b64f64'; data: string }>` — base64 of little-endian `Float64Array` bytes per range field. Loaders skip rebuilding range columns at first range query.
+- `facetIndexBin: Record<string, Record<string, string>>` — delta + LEB128 varint base64 posting lists.
+- `nullIndexBin: Record<string, string>` — delta + LEB128 varint base64 null posting lists.
+
+When present, `LyraBundle.load` prefers these over the legacy `facetIndex` / `nullIndex` `number[]` form. v3.0 readers ignore the new fields and continue using the legacy form.
+
+### Changed
+
+- `BUNDLE_VERSION` → `3.1.0`.
+- `LyraBundle.load` replaces `Uint32Array.from(numberArray)` calls with a pre-allocated loop. Single allocation, no iterator protocol.
+- `LyraBundle.toJSON` emits both legacy and v3.1 binary fields by default.
+
+### Performance
+
+Cold-start (load + first range query) on a 100k-item fixture:
+
+| Path | Before | After |
+|---|---|---|
+| v3.0 legacy (rebuild range columns at first query) | 13.3 ms | — |
+| v3.1 (range columns hydrated from base64) | — | **2.0 ms** |
+
+Wire size grows ~33% per posting list when both forms are emitted (legacy + binary side-by-side). Producers can drop the legacy fields once all consumers are on v3.1+.
+
+### Documentation
+
+- `docs/bundle-json-spec.md` aligned with the actual v3 format (was stuck on a stale v1 description).
+
+[3.1.0]: https://github.com/vectoral-io/lyra/releases/tag/v3.1.0
+
 ## [1.0.0] - 2025-01-XX
 
 ### Added

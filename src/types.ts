@@ -366,7 +366,28 @@ export type InMemoryNullIndex = Record<string, Uint32Array>;
 export type RangeColumns = Record<string, Float64Array>;
 
 /**
+ * Range columns serialized as base64-encoded little-endian Float64 bytes.
+ * Optional v3.1 field. When present, hydration is O(1) per column instead of
+ * rebuilding from items.
+ * @internal
+ */
+export type RangeColumnsJSON = Record<string, { encoding: 'b64f64'; data: string }>;
+
+/**
+ * Compact, base64-encoded delta+varint posting lists. Optional v3.1 fields.
+ * When present, loaders should prefer these over `facetIndex` / `nullIndex`.
+ * Producers may emit both forms for backwards compatibility with v3.0 readers.
+ * @internal
+ */
+export type FacetPostingListsBin = Record<string, Record<string, string>>;
+export type NullPostingListsBin = Record<string, string>;
+
+/**
  * Serialized bundle format (v3).
+ *
+ * v3.1 introduces optional `rangeColumns`, `facetIndexBin`, and `nullIndexBin`
+ * fields that accelerate hydration. v3.0 readers ignore unknown fields and
+ * continue to use the legacy `facetIndex` / `nullIndex`.
  */
 export type LyraBundleJSON<T = unknown> = {
   manifest: LyraManifest;
@@ -374,4 +395,19 @@ export type LyraBundleJSON<T = unknown> = {
   facetIndex: FacetPostingLists;
   /** Null posting lists, keyed by field name. */
   nullIndex: NullPostingLists;
+  /**
+   * v3.1 (optional): pre-encoded range columns. Avoids a per-load rescan of
+   * items + Date.parse storm.
+   */
+  rangeColumns?: RangeColumnsJSON;
+  /**
+   * v3.1 (optional): delta+varint base64 facet posting lists. Smaller wire size
+   * and faster hydrate than `facetIndex`. When present, takes precedence.
+   */
+  facetIndexBin?: FacetPostingListsBin;
+  /**
+   * v3.1 (optional): delta+varint base64 null posting lists. When present,
+   * takes precedence over `nullIndex`.
+   */
+  nullIndexBin?: NullPostingListsBin;
 };

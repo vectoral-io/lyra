@@ -1,6 +1,7 @@
 import type { RangeBound, Scalar } from '../types';
 import type { SortedSource } from '../utils/array-operations';
 import * as arrayOps from '../utils/array-operations';
+import type { ItemStore } from '../utils/item-store';
 
 /**
  * Filter `indices[0..indicesLen)` by null/not-null constraints, writing kept
@@ -15,10 +16,10 @@ import * as arrayOps from '../utils/array-operations';
  *
  * @internal
  */
-export function filterByNullChecks<T>(
+export function filterByNullChecks<T extends Record<string, unknown>>(
   indices: SortedSource,
   indicesLen: number,
-  items: T[],
+  itemStore: ItemStore<T>,
   nullChecks: { isNull: string[]; isNotNull: string[] },
   nullIndex: Record<string, Uint32Array>,
   bufA: Uint32Array,
@@ -75,21 +76,20 @@ export function filterByNullChecks<T>(
   let writeIndex = 0;
   for (let i = 0; i < indicesLen; i++) {
     const idx = indices[i];
-    const item = items[idx] as Record<string, unknown>;
     let ok = true;
 
     for (const field of nullChecks.isNull) {
-      const value = item[field];
+      const value = itemStore.getField(idx, field);
       if (value !== null && value !== undefined) {
-        ok = false; break; 
+        ok = false; break;
       }
     }
     if (!ok) continue;
 
     for (const field of nullChecks.isNotNull) {
-      const value = item[field];
+      const value = itemStore.getField(idx, field);
       if (value === null || value === undefined) {
-        ok = false; break; 
+        ok = false; break;
       }
     }
     if (ok) target[writeIndex++] = idx;
@@ -105,10 +105,10 @@ export function filterByNullChecks<T>(
  *
  * @internal
  */
-export function filterByExclusions<T>(
+export function filterByExclusions<T extends Record<string, unknown>>(
   indices: SortedSource,
   indicesLen: number,
-  items: T[],
+  itemStore: ItemStore<T>,
   excludes: Record<string, Scalar | Scalar[]>,
   target: Uint32Array,
 ): number {
@@ -129,14 +129,13 @@ export function filterByExclusions<T>(
   let writeIndex = 0;
   for (let i = 0; i < indicesLen; i++) {
     const idx = indices[i];
-    const item = items[idx] as Record<string, unknown>;
     let excluded = false;
 
     for (const { field, values } of fieldValues) {
-      const itemValue = item[field];
+      const itemValue = itemStore.getField(idx, field);
       if (itemValue === null || itemValue === undefined) continue;
       if (values.includes(itemValue as Scalar)) {
-        excluded = true; break; 
+        excluded = true; break;
       }
     }
 

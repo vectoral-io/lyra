@@ -34,11 +34,14 @@ const bundle = await createBundle(tickets, {
   ranges: ['createdAt'],
 });
 
-// 2. Persist as JSON
+// 2. Persist as JSON (portable, debuggable) — or as a binary container.
 const json = JSON.stringify(bundle.toJSON());
+const bytes = bundle.serialize('binary');     // Uint8Array, ~50× faster cold-start
 
 // 3. Load and query anywhere
 const loaded = LyraBundle.load<Ticket>(JSON.parse(json));
+//                  ↑ also accepts a Uint8Array (autodetected v4 binary)
+
 const result = loaded.query({
   equal: { customer: 'Acme Corp', priority: 'high' },
   ranges: { createdAt: { min: Date.now() - 7 * 86400_000 } },
@@ -48,6 +51,37 @@ const result = loaded.query({
 result.items;  // matching tickets
 result.total;  // total matches (ignores pagination)
 ```
+
+## Serialization
+
+Lyra ships two interoperable formats. Both round-trip identical query results.
+
+| Format | Producer | Consumer | When to use |
+|--------|----------|----------|-------------|
+| **JSON** (v3.x) | `bundle.toJSON()` / `bundle.serialize()` | `LyraBundle.load(json)` | Debugging, portability, transport over plain HTTP/JSON pipelines |
+| **Binary** (v4.x) | `bundle.serialize('binary')` → `Uint8Array` | `LyraBundle.loadBinary(bytes)` or `LyraBundle.load(bytes)` (autodetect) | Production hot path: smaller wire size + drastically faster cold-start |
+
+The binary container (v4.1) holds a single header JSON, then aligned blocks for items (columnar — dictionary-encoded strings, raw `f64` numbers, packed booleans), facet posting lists (delta + varint), null posting lists, and range columns (zero-copy `Float64Array` views when alignment permits).
+
+**Headline measurements** on a 300k-item real-world fixture (deeply-nested record shape — strings, numbers, arrays, and a per-row `Record<string, …>` step map):
+
+| | v3.1 JSON | v4.1 binary |
+|---|---|---|
+| Wire size (gzipped) | 49.3 MB | **43.6 MB** (12% smaller) |
+| Critical-path cold start (post-network main thread) | **~887 ms** (`JSON.parse`) + 2 ms (`load`) | **~18 ms** (`loadBinary`) |
+| Speedup | — | **~49× faster** |
+
+`JSON.parse` dominates the v3.1 cold start because `fetch().json()` is buffered + synchronous. The v4.1 path skips it entirely via `arrayBuffer()` → `loadBinary`. Range columns are zero-copy when buffer alignment permits.
+
+```ts
+// Browser hot path (assumes API responds with the binary container):
+const res = await fetch('/api/bundle');
+const bytes = new Uint8Array(await res.arrayBuffer());
+const bundle = LyraBundle.loadBinary<Ticket>(bytes);
+bundle.query({ equal: { status: 'open' } });
+```
+
+v3.1 JSON readers stay supported indefinitely. See [`docs/migration-v4.md`](./docs/migration-v4.md) for the full migration guide and [`docs/bundle-json-spec.md`](./docs/bundle-json-spec.md) for the on-the-wire format spec.
 
 ## Query
 
@@ -153,9 +187,10 @@ Simple config auto-adds remaining primitive fields as `meta`. Disable with `auto
 ## Docs
 
 - [API reference](./docs/api.md)
-- [Bundle JSON spec](./docs/bundle-json-spec.md)
+- [Bundle JSON + binary spec](./docs/bundle-json-spec.md)
 - [Agent integration guide](./docs/agents.md)
 - [Error behavior & guarantees](./docs/errors-and-guarantees.md)
+- [Migration from v3 → v4](./docs/migration-v4.md)
 - [Migration from v2 → v3](./docs/migration-v3.md)
 
 ## When to use Lyra

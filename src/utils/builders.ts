@@ -8,9 +8,15 @@ import type {
   LyraManifest,
   RangeColumns,
 } from '../types';
+import type { ItemStore } from './item-store';
 
-/** Current bundle format major version. */
-export const BUNDLE_VERSION = '3.0.0';
+/**
+ * Current bundle format version. v4.1 introduces columnar items inside the v4
+ * binary container (dictionary-encoded strings, raw f64 numbers, packed bits
+ * for booleans, JSON fallback for arrays/objects). v3.x JSON remains readable
+ * indefinitely for portability and debugging.
+ */
+export const BUNDLE_VERSION = '4.1.0';
 
 const VALID_KINDS: readonly FieldKind[] = ['id', 'facet', 'range', 'meta', 'alias'];
 const VALID_TYPES: readonly FieldType[] = ['string', 'number', 'boolean', 'date'];
@@ -103,9 +109,9 @@ export function buildManifest<TItem extends Record<string, unknown>>(
 export function validateManifest(manifest: LyraManifest): void {
   if (!manifest.version) throw new Error('Invalid bundle: missing version');
   const major = manifest.version.split('.')[0];
-  if (major !== '3') {
+  if (major !== '3' && major !== '4') {
     throw new Error(
-      `Invalid bundle version: "${manifest.version}". Expected version starting with "3."`,
+      `Invalid bundle version: "${manifest.version}". Expected version starting with "3." or "4."`,
     );
   }
 
@@ -268,19 +274,25 @@ export function buildNullIndex<T extends Record<string, unknown>>(
  * @internal
  */
 export function buildRangeColumns<T extends Record<string, unknown>>(
-  items: T[],
+  source: T[] | ItemStore<T>,
   manifest: LyraManifest,
 ): RangeColumns {
   const rangeFields = manifest.fields.filter((fld) => fld.kind === 'range');
   const columns: RangeColumns = {};
 
+  const isStore = !Array.isArray(source);
+  const length = isStore ? (source as ItemStore<T>).length : (source as T[]).length;
+  const readField = isStore
+    ? (idx: number, field: string): unknown => (source as ItemStore<T>).getField(idx, field)
+    : (idx: number, field: string): unknown => (source as T[])[idx][field];
+
   for (const field of rangeFields) {
-    const col = new Float64Array(items.length);
+    const col = new Float64Array(length);
     const fieldName = field.name;
     const fieldType = field.type;
 
-    for (let idx = 0; idx < items.length; idx++) {
-      const raw = items[idx][fieldName];
+    for (let idx = 0; idx < length; idx++) {
+      const raw = readField(idx, fieldName);
       if (raw == null) {
         col[idx] = Number.NaN;
         continue;

@@ -4,41 +4,47 @@ Lyra uses two distinct version numbers:
 
 ## NPM Package Version
 
-The **NPM package version** (in `package.json`) tracks the library code version. This follows semantic versioning (MAJOR.MINOR.PATCH) and indicates:
+The **NPM package version** (in `package.json`) tracks the library code version. SemVer (MAJOR.MINOR.PATCH):
 
-- **MAJOR**: Breaking changes to the public API
-- **MINOR**: New features, backward compatible
-- **PATCH**: Bug fixes, backward compatible
+- **MAJOR**: Breaking changes to the public API.
+- **MINOR**: New features, backward compatible.
+- **PATCH**: Bug fixes, backward compatible.
 
-**Current version:** `1.0.0` (first stable release)
+**Current version:** `4.1.0`.
 
 ## Bundle Format Version
 
-The **bundle format version** (in `manifest.version`) tracks the bundle JSON format version. This is independent of the NPM package version.
+The **bundle format version** (in `manifest.version`) tracks the on-the-wire bundle format and is independent of the NPM package version.
 
-### Version 1.x
+### Format families
 
-- All bundle JSONs with `manifest.version` starting with `"1."` are supported by Lyra 1.x
-- The format is stable within v1 (e.g., `"1.0.0"`, `"1.1.0"`, `"1.2.3"` are all compatible)
-- Format changes within v1 are additive only (new optional fields, etc.)
-- Bundles created with Lyra 1.0.0 will have `manifest.version` set to `"1.0.0"` (or compatible `"1.x"` format)
+- **v3.x — JSON.** Portable, human-readable, debuggable. v3.1 added optional binary-encoded payload fields (`rangeColumns`, `facetIndexBin`, `nullIndexBin`); v3.0 readers ignore them.
+- **v4.x — Binary container.** New in Lyra 4.0. Magic bytes `LYRA4`, header JSON, then aligned blocks. v4.1 introduced columnar items inside the container (default).
 
-### Future Versions
+Both families coexist: a Lyra 4.x reader accepts both v3 JSON and v4 binary inputs through `LyraBundle.load(...)` (autodetects on `Uint8Array` + magic). The v3 JSON path is supported indefinitely.
 
-- Breaking changes to the bundle format will bump `manifest.version` to `"2.0.0"`
-- Lyra 1.x will not parse bundles with `manifest.version` starting with `"2."`
-- When v2 is introduced, v1 bundles will continue to be supported by Lyra 2.x (backward compatibility)
+### Validation
 
-## Compatibility Matrix
+`LyraBundle.load` validates `manifest.version` starts with `"3."` or `"4."`. Anything else is rejected at load with a clear error.
 
-| Lyra Package Version | Supported Bundle Versions |
-|---------------------|---------------------------|
-| 1.x                  | 1.x                       |
-| 2.x                  | 1.x, 2.x                  |
+### Compatibility matrix
 
-## Migration Notes
+| Lyra Package Version | Supports JSON v3.x | Supports binary v4.x | Default `BUNDLE_VERSION` emitted |
+|---|---|---|---|
+| 3.0.x | ✅ | ❌ | `3.0.0` |
+| 3.1.x | ✅ (with v3.1 fast paths) | ❌ | `3.1.0` |
+| 4.0.x | ✅ | ✅ (row-form items only) | `4.0.0` |
+| 4.1.x | ✅ | ✅ (row + columnar items) | `4.1.0` |
 
-- **Upgrading Lyra package**: Generally safe within the same major version
-- **Bundle format changes**: Breaking format changes require updating both the producer (bundle builder) and consumer (bundle loader) to compatible versions
-- **Version format**: Bundle `manifest.version` uses semantic versioning (`MAJOR.MINOR.PATCH`)
+| Reader \ Producer | v3.0 | v3.1 | v4.0 | v4.1 |
+|---|---|---|---|---|
+| v3.0 reader | ✅ | ✅ (ignores new fields) | ❌ (magic mismatch) | ❌ |
+| v3.1 reader | ✅ | ✅ | ❌ (magic mismatch) | ❌ |
+| v4.0 reader | ✅ | ✅ | ✅ | ❌ (unknown items.encoding) |
+| v4.1 reader | ✅ | ✅ | ✅ | ✅ |
 
+## Migration notes
+
+- **Upgrading Lyra package within the same major** is generally safe (additive only).
+- **Cross-major upgrades** for bundle format require both producer and consumer to be on a compatible version. v4 readers consume v3 JSON, but v3 readers cannot consume v4 binary.
+- See `docs/migration-v4.md` for the v3 → v4 walkthrough and `docs/migration-v3.md` for v2 → v3.

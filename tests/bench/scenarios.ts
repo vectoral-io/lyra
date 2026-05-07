@@ -1,8 +1,9 @@
 // bench/scenarios.ts
-import { createBundle } from '../../src/bundle';
+import { createBundle, LyraBundle } from '../../src/bundle';
 import { intersectSorted, mergeUnionSorted } from '../../src/utils/array-operations';
 import { filterByRanges } from '../../src/query/filters';
 import { generateTicketArray } from '../tickets.fixture';
+import type { LyraBundleJSON } from '../../src/types';
 
 function makeRange(start: number, end: number): number[] {
   const out = new Array(end - start);
@@ -325,6 +326,155 @@ export async function getScenarios(): Promise<Scenario[]> {
             },
             limit: 50,
           });
+        },
+      }),
+    },
+
+    // --- v3.1 serialize / hydrate cost. Informational until baselined. ---
+    {
+      name: '100k / serialize toJSON (v3.1)',
+      setup: async () => ({
+        run: () => {
+          bundle100k.toJSON();
+        },
+      }),
+    },
+    {
+      name: '100k / load (v3.1 binary path)',
+      setup: async () => {
+        const json = bundle100k.toJSON();
+        return {
+          run: () => {
+            LyraBundle.load(json);
+          },
+        };
+      },
+    },
+    {
+      name: '100k / load (v3.0 legacy path, binary fields stripped)',
+      setup: async () => {
+        const json = bundle100k.toJSON();
+        const legacy: LyraBundleJSON = {
+          manifest: json.manifest,
+          items: json.items,
+          facetIndex: json.facetIndex,
+          nullIndex: json.nullIndex,
+        };
+        return {
+          run: () => {
+            LyraBundle.load(legacy);
+          },
+        };
+      },
+    },
+    // Cold start including first range-touching query — captures the real
+    // win of pre-encoded range columns vs lazy rebuild from items.
+    {
+      name: '100k / load + first range query (v3.1 binary)',
+      setup: async () => {
+        const json = bundle100k.toJSON();
+        return {
+          run: () => {
+            const fresh = LyraBundle.load(json);
+            fresh.query({ ranges: { slaHours: { min: 0, max: 72 } }, limit: 1 });
+          },
+        };
+      },
+    },
+    {
+      name: '100k / load + first range query (v3.0 legacy)',
+      setup: async () => {
+        const json = bundle100k.toJSON();
+        const legacy: LyraBundleJSON = {
+          manifest: json.manifest,
+          items: json.items,
+          facetIndex: json.facetIndex,
+          nullIndex: json.nullIndex,
+        };
+        return {
+          run: () => {
+            const fresh = LyraBundle.load(legacy);
+            fresh.query({ ranges: { slaHours: { min: 0, max: 72 } }, limit: 1 });
+          },
+        };
+      },
+    },
+
+    // --- v4 binary container. Informational until baselined. ---
+    {
+      name: '100k / serialize binary (v4)',
+      setup: async () => ({
+        run: () => {
+          bundle100k.serialize('binary');
+        },
+      }),
+    },
+    {
+      name: '100k / loadBinary (v4)',
+      setup: async () => {
+        const bytes = bundle100k.serialize('binary');
+        return {
+          run: () => {
+            LyraBundle.loadBinary(bytes);
+          },
+        };
+      },
+    },
+    {
+      name: '100k / loadBinary + first range query (v4)',
+      setup: async () => {
+        const bytes = bundle100k.serialize('binary');
+        return {
+          run: () => {
+            const fresh = LyraBundle.loadBinary(bytes);
+            fresh.query({ ranges: { slaHours: { min: 0, max: 72 } }, limit: 1 });
+          },
+        };
+      },
+    },
+
+    // --- Wire-form load: includes JSON.parse / decode cost (apples-to-apples
+    //     with v4 loadBinary, which always parses items off the wire).
+    {
+      name: '100k / wire-form JSON.parse + load (v3.1)',
+      setup: async () => {
+        const wire = JSON.stringify(bundle100k.toJSON());
+        return {
+          run: () => {
+            LyraBundle.load(JSON.parse(wire));
+          },
+        };
+      },
+    },
+    {
+      name: '100k / wire-form JSON.parse + load + first range query (v3.1)',
+      setup: async () => {
+        const wire = JSON.stringify(bundle100k.toJSON());
+        return {
+          run: () => {
+            const fresh = LyraBundle.load(JSON.parse(wire));
+            fresh.query({ ranges: { slaHours: { min: 0, max: 72 } }, limit: 1 });
+          },
+        };
+      },
+    },
+    // Wire-size measurements (run once per setup; reported via run-time which
+    // is dominated by the JSON.stringify / .length scan).
+    {
+      name: '100k / wire-size: JSON.stringify(v3.1)',
+      setup: async () => ({
+        run: () => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const _len = JSON.stringify(bundle100k.toJSON()).length;
+        },
+      }),
+    },
+    {
+      name: '100k / wire-size: serialize binary (v4)',
+      setup: async () => ({
+        run: () => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const _len = bundle100k.serialize('binary').byteLength;
         },
       }),
     },
