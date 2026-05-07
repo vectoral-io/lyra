@@ -4,12 +4,15 @@ import type {
   FacetCounts,
   FacetPostingLists,
   FieldType,
+  InMemoryFacetIndex,
+  InMemoryNullIndex,
   LyraBundleJSON,
   LyraManifest,
   LyraQuery,
   LyraResult,
   LyraSnapshotInfo,
   NullPostingLists,
+  RangeColumns,
   Scalar,
   SimpleBundleConfig,
 } from './types';
@@ -17,12 +20,14 @@ import { enrichItems, getAliasValues } from './aliases';
 import { filterByExclusions, filterByNullChecks, filterByRanges } from './query/filters';
 import { normalizeQuery, resolveAliases } from './query/normalize';
 import * as arrayOps from './utils/array-operations';
+import type { SortedSource } from './utils/array-operations';
 import {
   BUNDLE_VERSION,
   buildFacetIndex,
   buildLookupTablesFromData,
   buildManifest,
   buildNullIndex,
+  buildRangeColumns,
   validateManifest,
 } from './utils/builders';
 import { fromSimpleConfig } from './utils/type-inference';
@@ -59,30 +64,67 @@ export async function createBundle<T extends Record<string, unknown>>(
 export class LyraBundle<T extends Record<string, unknown>> {
   private readonly items: T[];
   private readonly manifest: LyraManifest;
-  private readonly facetIndex: FacetPostingLists;
-  private readonly nullIndex: NullPostingLists;
+  private readonly facetIndex: InMemoryFacetIndex;
+  private readonly nullIndex: InMemoryNullIndex;
+  // Lazily built on first range-using query — building Float64Array columns
+  // (especially date columns via Date.parse per item) is expensive, so we
+  // defer it from bundle creation and pay it once on first use.
+  private cachedRangeColumns: RangeColumns | null = null;
 
-  // Cached [0..items.length) for empty-query fast path. Callers must treat as read-only.
-  private readonly allIndices: number[];
+  // Cached [0..items.length) for empty-query fast path. Lazily filled on demand.
+  private cachedAllIndices: Uint32Array | null = null;
 
-  // Scratch buffers for the query pipeline. Each stage owns its own buffer so
-  // stages can never alias each other's input or output.
-  private readonly scratchEqual: number[] = [];
-  private readonly scratchRange: number[] = [];
-  private readonly scratchNull: number[] = [];
-  private readonly scratchExcl: number[] = [];
+  // Per-stage and workspace scratch buffers, sized to items.length. Lazily
+  // allocated on first query so bundle creation pays only for what users use.
+  private cachedBufEqual: Uint32Array | null = null;
+  private cachedBufRange: Uint32Array | null = null;
+  private cachedBufNull: Uint32Array | null = null;
+  private cachedBufExcl: Uint32Array | null = null;
+  private cachedBufWorkA: Uint32Array | null = null;
+  private cachedBufWorkB: Uint32Array | null = null;
 
   private constructor(
     items: T[],
     manifest: LyraManifest,
-    facetIndex: FacetPostingLists,
-    nullIndex: NullPostingLists,
+    facetIndex: InMemoryFacetIndex,
+    nullIndex: InMemoryNullIndex,
   ) {
     this.items = items;
     this.manifest = manifest;
     this.facetIndex = facetIndex;
     this.nullIndex = nullIndex;
-    this.allIndices = Array.from({ length: items.length }, (_unused, index) => index);
+  }
+
+  private get rangeColumns(): RangeColumns {
+    return this.cachedRangeColumns ??= buildRangeColumns(this.items, this.manifest);
+  }
+
+  private get allIndices(): Uint32Array {
+    if (!this.cachedAllIndices) {
+      const itemCount = this.items.length;
+      const all = new Uint32Array(itemCount);
+      for (let i = 0; i < itemCount; i++) all[i] = i;
+      this.cachedAllIndices = all;
+    }
+    return this.cachedAllIndices;
+  }
+  private get bufEqual(): Uint32Array {
+    return this.cachedBufEqual ??= new Uint32Array(this.items.length);
+  }
+  private get bufRange(): Uint32Array {
+    return this.cachedBufRange ??= new Uint32Array(this.items.length);
+  }
+  private get bufNull(): Uint32Array {
+    return this.cachedBufNull ??= new Uint32Array(this.items.length);
+  }
+  private get bufExcl(): Uint32Array {
+    return this.cachedBufExcl ??= new Uint32Array(this.items.length);
+  }
+  private get bufWorkA(): Uint32Array {
+    return this.cachedBufWorkA ??= new Uint32Array(this.items.length);
+  }
+  private get bufWorkB(): Uint32Array {
+    return this.cachedBufWorkB ??= new Uint32Array(this.items.length);
   }
 
   /**
@@ -157,17 +199,26 @@ export class LyraBundle<T extends Record<string, unknown>> {
       : normalized.notEqualFilters;
 
     // 1. Equal candidates.
-    let candidates = this.getEqualCandidates(resolvedEqual);
+    const equalResult = this.getEqualCandidates(resolvedEqual);
+    if (equalResult === null) return this.emptyResult(query);
+    let candidates: SortedSource = equalResult.buf;
+    let candidatesLen = equalResult.len;
 
     // 2. Union in null-matching indices for any `equal: { field: [val, null] }` fields.
     if (normalized.equalWithNull.size > 0) {
-      const nullLists: number[][] = [];
+      const nullLists: SortedSource[] = [];
       for (const field of normalized.equalWithNull) {
         const nulls = this.nullIndex[field];
         if (nulls && nulls.length > 0) nullLists.push(nulls);
       }
       if (nullLists.length > 0) {
-        candidates = arrayOps.mergeUnionSorted([candidates, ...nullLists]);
+        // Use bufWorkA as merge target so we never alias `candidates` (which may be bufEqual).
+        const inputs: SortedSource[] = [
+          viewOf(candidates, candidatesLen),
+          ...nullLists,
+        ];
+        candidatesLen = arrayOps.mergeUnionSorted(inputs, this.bufWorkA);
+        candidates = this.bufWorkA;
       }
     }
 
@@ -178,14 +229,14 @@ export class LyraBundle<T extends Record<string, unknown>> {
       if (rangeFields.some((field) => !validRanges.has(field))) {
         return this.emptyResult(query);
       }
-      const fieldTypes = this.buildRangeFieldTypes(rangeFields);
-      candidates = filterByRanges(
+      candidatesLen = filterByRanges(
         candidates,
-        this.items,
+        candidatesLen,
         normalized.rangeFilters,
-        fieldTypes,
-        this.scratchRange,
-      ).slice();
+        this.rangeColumns,
+        this.bufRange,
+      );
+      candidates = this.bufRange;
     }
 
     // 4. Null checks (skip fields already covered by equalWithNull).
@@ -196,33 +247,47 @@ export class LyraBundle<T extends Record<string, unknown>> {
         isNull: normalized.nullChecks.isNull.filter((field) => !normalized.equalWithNull.has(field)),
         isNotNull: normalized.nullChecks.isNotNull,
       };
-      candidates = filterByNullChecks(
+      candidatesLen = filterByNullChecks(
         candidates,
+        candidatesLen,
         this.items,
         explicitNullChecks,
         this.nullIndex,
-        this.scratchNull,
+        this.bufWorkA,
+        this.bufWorkB,
+        this.bufNull,
       );
-      if (candidates === this.scratchNull) candidates = candidates.slice();
+      candidates = this.bufNull;
     }
 
     // 5. Exclusions.
     if (Object.keys(resolvedNotEqual).length > 0) {
-      candidates = filterByExclusions(candidates, this.items, resolvedNotEqual, this.scratchExcl);
-      if (candidates === this.scratchExcl) candidates = candidates.slice();
+      candidatesLen = filterByExclusions(
+        candidates,
+        candidatesLen,
+        this.items,
+        resolvedNotEqual,
+        this.bufExcl,
+      );
+      candidates = this.bufExcl;
     }
 
     // 6. Facet counts (canonical facets only).
-    const total = candidates.length;
+    const total = candidatesLen;
     const facets = query.includeFacetCounts
-      ? this.computeFacetCounts(candidates, this.manifest.capabilities.facets)
+      ? this.computeFacetCounts(candidates, candidatesLen, this.manifest.capabilities.facets)
       : undefined;
 
     // 7. Pagination.
     const start = Math.max(0, query.offset ?? 0);
-    const end = query.limit != null ? start + Math.max(0, query.limit) : undefined;
-    const pageIndices = candidates.slice(start, end);
-    let resultItems: T[] = pageIndices.map((idx) => this.items[idx]);
+    const limit = query.limit != null ? Math.max(0, query.limit) : candidatesLen;
+    const end = Math.min(candidatesLen, start + limit);
+    const pageLen = end > start ? end - start : 0;
+    const items = this.items;
+    let resultItems: T[] = new Array(pageLen);
+    for (let i = 0; i < pageLen; i++) {
+      resultItems[i] = items[candidates[start + i]];
+    }
 
     // 8. Optional alias enrichment (opt-in).
     if (this.manifest.capabilities.aliases && this.manifest.capabilities.aliases.length > 0) {
@@ -350,14 +415,31 @@ export class LyraBundle<T extends Record<string, unknown>> {
   /**
    * Serialize the bundle to a plain JSON-compatible structure.
    *
+   * Posting lists are stored in memory as `Uint32Array` for cache locality;
+   * here they are serialized back to plain `number[]` so the bundle remains
+   * portable JSON.
+   *
    *! NOTE: Any structural change here must be reflected in docs/bundle-json-spec.md
    */
   toJSON(): LyraBundleJSON<T> {
+    const facetIndex: FacetPostingLists = {};
+    for (const field in this.facetIndex) {
+      const byValue = this.facetIndex[field];
+      const out: Record<string, number[]> = {};
+      for (const valueKey in byValue) {
+        out[valueKey] = Array.from(byValue[valueKey]);
+      }
+      facetIndex[field] = out;
+    }
+    const nullIndex: NullPostingLists = {};
+    for (const field in this.nullIndex) {
+      nullIndex[field] = Array.from(this.nullIndex[field]);
+    }
     return {
       manifest: this.manifest,
       items: this.items,
-      facetIndex: this.facetIndex,
-      nullIndex: this.nullIndex,
+      facetIndex,
+      nullIndex,
     };
   }
 
@@ -376,19 +458,32 @@ export class LyraBundle<T extends Record<string, unknown>> {
     const { manifest, items } = raw;
     validateManifest(manifest);
 
-    const facetIndex: FacetPostingLists = raw.facetIndex ?? {};
-    const nullIndex: NullPostingLists = raw.nullIndex ?? {};
+    const rawFacet: FacetPostingLists = raw.facetIndex ?? {};
+    const rawNull: NullPostingLists = raw.nullIndex ?? {};
 
-    // Cross-check facetIndex against capabilities.
-    for (const indexKey of Object.keys(facetIndex)) {
+    for (const indexKey of Object.keys(rawFacet)) {
       if (!manifest.capabilities.facets.includes(indexKey)) {
         throw new Error(
           `Invalid bundle: facetIndex contains field "${indexKey}" that is not in capabilities.facets`,
         );
       }
     }
-    for (const facetField of manifest.capabilities.facets) {
-      if (!(facetField in facetIndex)) facetIndex[facetField] = {};
+
+    const facetIndex: InMemoryFacetIndex = {};
+    for (const field of manifest.capabilities.facets) {
+      const byValue = rawFacet[field];
+      const out: Record<string, Uint32Array> = {};
+      if (byValue) {
+        for (const valueKey in byValue) {
+          out[valueKey] = Uint32Array.from(byValue[valueKey]);
+        }
+      }
+      facetIndex[field] = out;
+    }
+
+    const nullIndex: InMemoryNullIndex = {};
+    for (const field in rawNull) {
+      nullIndex[field] = Uint32Array.from(rawNull[field]);
     }
 
     return new LyraBundle<TItem>(items, manifest, facetIndex, nullIndex);
@@ -400,85 +495,126 @@ export class LyraBundle<T extends Record<string, unknown>> {
    * Compute candidate indices from `equal` filters.
    *
    * Empty filters → all indices. Any field not in the facet index → no matches.
-   * Intersects posting lists in order of increasing size.
+   * Intersects posting lists in order of increasing size. Returns null on no-match.
+   *
+   * Result `buf` may be:
+   * - this.allIndices (no filters)
+   * - a posting list directly from the facet index (single field, single value)
+   * - this.bufWorkA after a multi-value union (single field, multi value)
+   * - this.bufEqual after K-way intersection (multi field)
    *
    * @internal
    */
-  private getEqualCandidates(equalFilters: Record<string, Scalar | Scalar[]>): number[] {
+  private getEqualCandidates(
+    equalFilters: Record<string, Scalar | Scalar[]>,
+  ): { buf: SortedSource; len: number } | null {
     const fields = Object.keys(equalFilters);
-    if (fields.length === 0) return this.allIndices;
+    if (fields.length === 0) return { buf: this.allIndices, len: this.items.length };
 
-    interface FacetEntry { postings: number[]; size: number }
+    // Single-field fast path. Avoids per-query allocation: posting lists return
+    // by reference, multi-value unions write directly into bufEqual.
+    if (fields.length === 1) {
+      const field = fields[0];
+      const byValue = this.facetIndex[field];
+      if (!byValue) return null;
+
+      const value = equalFilters[field];
+      const values = Array.isArray(value) ? value : [value];
+      if (values.length === 0) return null;
+
+      if (values.length === 1) {
+        const postings = byValue[String(values[0])];
+        if (!postings || postings.length === 0) return null;
+        return { buf: postings, len: postings.length };
+      }
+
+      const postingsArrays: SortedSource[] = [];
+      for (const candidateValue of values) {
+        const postings = byValue[String(candidateValue)];
+        if (postings && postings.length > 0) postingsArrays.push(postings);
+      }
+      if (postingsArrays.length === 0) return null;
+      if (postingsArrays.length === 1) {
+        return { buf: postingsArrays[0], len: postingsArrays[0].length };
+      }
+
+      const len = arrayOps.mergeUnionSorted(postingsArrays, this.bufEqual);
+      return { buf: this.bufEqual, len };
+    }
+
+    // Multi-field path. Each field contributes a posting list (or per-field
+    // union); we intersect smallest-first using bufWorkA/bufWorkB ping-pong
+    // and land the final result in bufEqual.
+    interface FacetEntry { postings: SortedSource; size: number }
     const entries: FacetEntry[] = [];
 
     for (const field of fields) {
       const byValue = this.facetIndex[field];
-      if (!byValue) return []; // Unknown facet field.
+      if (!byValue) return null;
 
       const value = equalFilters[field];
       const values = Array.isArray(value) ? value : [value];
-
-      // Empty IN clause → no matches.
-      if (values.length === 0) return [];
+      if (values.length === 0) return null;
 
       if (values.length === 1) {
         const postings = byValue[String(values[0])];
-        if (!postings || postings.length === 0) return [];
+        if (!postings || postings.length === 0) return null;
         entries.push({ postings, size: postings.length });
         continue;
       }
 
-      const postingsArrays: number[][] = [];
-      for (const value of values) {
-        const postings = byValue[String(value)];
+      const postingsArrays: SortedSource[] = [];
+      for (const candidateValue of values) {
+        const postings = byValue[String(candidateValue)];
         if (postings && postings.length > 0) postingsArrays.push(postings);
       }
-      if (postingsArrays.length === 0) return [];
+      if (postingsArrays.length === 0) return null;
 
-      const merged = arrayOps.mergeUnionSorted(postingsArrays);
-      entries.push({ postings: merged, size: merged.length });
+      // Per-field union must be held through the K-way intersection below, so
+      // copy out of the shared workspace. Only the multi-field-multi-value case
+      // pays this allocation; single-field multi-value is handled above.
+      const len = arrayOps.mergeUnionSorted(postingsArrays, this.bufWorkA);
+      entries.push({ postings: this.bufWorkA.slice(0, len), size: len });
     }
 
-    // Intersect smallest-first.
     entries.sort((entryA, entryB) => entryA.size - entryB.size);
-    if (entries.length === 1) return entries[0].postings;
 
-    // Double-buffered intersection using scratchEqual.
-    const tmp: number[] = [];
-    let current = entries[0].postings;
+    let current: SortedSource = entries[0].postings;
+    let currentLen = entries[0].size;
+    let workTarget: Uint32Array = this.bufWorkA;
+    let workOther: Uint32Array = this.bufWorkB;
     for (let i = 1; i < entries.length; i++) {
-      arrayOps.intersectSorted(current, entries[i].postings, tmp);
-      this.scratchEqual.length = 0;
-      for (let j = 0; j < tmp.length; j++) this.scratchEqual.push(tmp[j]);
-      current = this.scratchEqual.slice();
-      if (current.length === 0) return [];
+      const finalRound = i === entries.length - 1;
+      const target = finalRound ? this.bufEqual : workTarget;
+      const written = arrayOps.intersectSorted(
+        viewOf(current, currentLen),
+        entries[i].postings,
+        target,
+      );
+      if (written === 0) return null;
+      current = target;
+      currentLen = written;
+      if (!finalRound) {
+        const swap = workTarget; workTarget = workOther; workOther = swap;
+      }
     }
-    return current;
-  }
-
-  /**
-   * Build field type map for range fields.
-   * @internal
-   */
-  private buildRangeFieldTypes(rangeFields: string[]): Record<string, FieldType> {
-    const fieldTypes: Record<string, FieldType> = {};
-    for (const field of rangeFields) {
-      const def = this.manifest.fields.find((fieldDef) => fieldDef.name === field);
-      if (def) fieldTypes[field] = def.type;
-    }
-    return fieldTypes;
+    return { buf: this.bufEqual, len: currentLen };
   }
 
   /**
    * Compute facet counts over a set of candidate indices (canonical facets only).
    * @internal
    */
-  private computeFacetCounts(indices: number[], facetFields: string[]): FacetCounts {
+  private computeFacetCounts(
+    indices: SortedSource,
+    indicesLen: number,
+    facetFields: string[],
+  ): FacetCounts {
     const counts: FacetCounts = {};
     for (const field of facetFields) counts[field] = {};
 
-    for (const idx of indices) {
-      const item = this.items[idx] as Record<string, unknown>;
+    for (let i = 0; i < indicesLen; i++) {
+      const item = this.items[indices[i]] as Record<string, unknown>;
       for (const field of facetFields) {
         const raw = item[field];
         if (raw === undefined || raw === null) continue;
@@ -524,6 +660,19 @@ export { BUNDLE_VERSION };
 
 // Utilities
 // ==============================
+
+/**
+ * Return a read-only view of the first `len` elements of `source`. For
+ * `Uint32Array` sources we use `subarray` (zero-copy view); other shapes (the
+ * cached `allIndices`) are passed through unchanged when len matches.
+ * @internal
+ */
+function viewOf(source: SortedSource, len: number): SortedSource {
+  if (source instanceof Uint32Array) {
+    return source.length === len ? source : source.subarray(0, len);
+  }
+  return source;
+}
 
 /**
  * Parse a facet key string back to its typed value based on field type.

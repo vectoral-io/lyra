@@ -1,17 +1,100 @@
 {
-  "generatedAt": "2025-11-24T04:21:31.982Z",
+  "generatedAt": "2026-05-07T09:26:07.087Z",
   "results": {
     "100k / single facet (customerId)": {
       "iterations": 5000,
-      "meanMs": 0.025205516799999998
+      "meanMs": 0.012269350000000004,
+      "p99Ms": 0.031038320000000112
     },
     "100k / multi-facet + ranges + pagination": {
       "iterations": 5000,
-      "meanMs": 1.532896
+      "meanMs": 0.3271489,
+      "p99Ms": 0.3616150000000016
     },
     "10k / full feature set": {
       "iterations": 5000,
-      "meanMs": 0.37542044999999996
+      "meanMs": 0.04085633339999999,
+      "p99Ms": 0.05571834000000308
+    },
+    "100k / canonical facet (baseline)": {
+      "iterations": 5000,
+      "meanMs": 0.015399774999999954,
+      "p99Ms": 0.040653339999998934
+    },
+    "100k / alias resolution": {
+      "iterations": 5000,
+      "meanMs": 0.014277499999999964,
+      "p99Ms": 0.019752499999995052
+    },
+    "100k / enrichAliases: true": {
+      "iterations": 5000,
+      "meanMs": 0.5312848584000001,
+      "p99Ms": 0.6042900000000009
+    },
+    "100k / enrichAliases: false": {
+      "iterations": 5000,
+      "meanMs": 0.014506074999999874,
+      "p99Ms": 0.022034160000002884
+    },
+    "100k / alias + enrichment": {
+      "iterations": 5000,
+      "meanMs": 0.52506965,
+      "p99Ms": 0.6036408200000005
+    },
+    "100k / bundle creation with aliases": {
+      "iterations": 5000,
+      "meanMs": 6.352448033399999,
+      "p99Ms": 6.953105820000019
+    },
+    "100k / utility: getAliasValues (single id)": {
+      "iterations": 5000,
+      "meanMs": 0.00007785000000003492,
+      "p99Ms": 0.0003383200000098441
+    },
+    "100k / utility: enrichItems": {
+      "iterations": 5000,
+      "meanMs": 0.006715833400000702,
+      "p99Ms": 0.009012500000098954
+    },
+    "micro / intersectSorted / 50k vs 50k (50% overlap)": {
+      "iterations": 5000,
+      "meanMs": 0.04828845000000001,
+      "p99Ms": 0.05155415999994148
+    },
+    "micro / intersectSorted / 50k vs 50k (1% overlap)": {
+      "iterations": 5000,
+      "meanMs": 0.04072947500000009,
+      "p99Ms": 0.043597500000032596
+    },
+    "micro / intersectSorted / skewed (100 vs 100k)": {
+      "iterations": 5000,
+      "meanMs": 0.0018985083999999916,
+      "p99Ms": 0.003604159999958938
+    },
+    "micro / mergeUnionSorted / 8 × 5k": {
+      "iterations": 5000,
+      "meanMs": 0.16948320820000082,
+      "p99Ms": 0.21959166000000552
+    },
+    "micro / filterIndicesByRange / 100k × 2 fields": {
+      "iterations": 5000,
+      "meanMs": 0.9869556083999996,
+      "p99Ms": 1.0234949999999663
+    },
+    "100k / multi-value IN (8 customers)": {
+      "iterations": 5000,
+      "meanMs": 1.2831830999999991,
+      "p99Ms": 1.3687974999999277
+    },
+    "100k / facet counts only (broad equal)": {
+      "iterations": 5000,
+      "meanMs": 1.2656449668,
+      "p99Ms": 1.5242466600000626
+    },
+    "100k / ranges only (no equal)": {
+      "iterations": 5000,
+      "meanMs": 0.982404475,
+      "p99Ms": 1.044210000000021
     }
   }
 }

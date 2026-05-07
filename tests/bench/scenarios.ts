@@ -1,6 +1,21 @@
 // bench/scenarios.ts
 import { createBundle } from '../../src/bundle';
+import { intersectSorted, mergeUnionSorted } from '../../src/utils/array-operations';
+import { filterByRanges } from '../../src/query/filters';
 import { generateTicketArray } from '../tickets.fixture';
+
+function makeRange(start: number, end: number): number[] {
+  const out = new Array(end - start);
+  for (let i = 0; i < out.length; i++) out[i] = start + i;
+  return out;
+}
+
+function makeSubset(source: number[], count: number): number[] {
+  const step = Math.max(1, Math.floor(source.length / count));
+  const out: number[] = [];
+  for (let i = 0; i < source.length && out.length < count; i += step) out.push(source[i]);
+  return out;
+}
 
 export type ScenarioResult = {
   name: string;
@@ -52,6 +67,37 @@ export async function getScenarios(): Promise<Scenario[]> {
     createBundle(data100k, config),
     createBundle(data100k, configWithAliases),
   ]);
+
+  // Micro-bench fixtures: sorted integer arrays for intersection.
+  const toU32 = (arr: number[]) => Uint32Array.from(arr);
+  const intersectScratch = new Uint32Array(100_000);
+  // 50% overlap: A=[0..50000), B=[25000..75000) → 25000 overlap
+  const arrSimilarA = toU32(makeRange(0, 50_000));
+  const arrSimilarB = toU32(makeRange(25_000, 75_000));
+  // 1% overlap: A=[0..50000), B=[49500..99500) → 500 overlap
+  const arrLowOverlapA = toU32(makeRange(0, 50_000));
+  const arrLowOverlapB = toU32(makeRange(49_500, 99_500));
+  // Skewed: A=100 values from B's 100k
+  const arrBigB = toU32(makeRange(0, 100_000));
+  const arrSmallA = toU32(makeSubset(makeRange(0, 100_000), 100));
+  // Multi-list union: 8 sorted arrays of 5k each
+  const unionInputs = Array.from({ length: 8 }, (_unused, k) =>
+    toU32(makeRange(k * 4_000, k * 4_000 + 5_000)),
+  );
+  const unionScratch = new Uint32Array(40_000);
+
+  // Range filter micro-bench fixture: 100k indices with two-field range data.
+  const rangeIndices = toU32(makeRange(0, 100_000));
+  const rangeScratch = new Uint32Array(100_000);
+  // Build columns directly from items (mirrors what bundle.ts does at create time).
+  const slaHoursCol = new Float64Array(data100k.length);
+  const createdAtCol = new Float64Array(data100k.length);
+  for (let i = 0; i < data100k.length; i++) {
+    slaHoursCol[i] = data100k[i].slaHours;
+    const parsed = Date.parse(data100k[i].createdAt);
+    createdAtCol[i] = Number.isNaN(parsed) ? Number.NaN : parsed;
+  }
+  const rangeColumns = { slaHours: slaHoursCol, createdAt: createdAtCol };
 
   return [
     {
@@ -192,6 +238,95 @@ export async function getScenarios(): Promise<Scenario[]> {
           },
         };
       },
+    },
+
+    // --- Micro-benchmarks: isolate hot subroutines for phase-by-phase tracking. ---
+    {
+      name: 'micro / intersectSorted / 50k vs 50k (50% overlap)',
+      setup: async () => ({
+        run: () => {
+          intersectSorted(arrSimilarA, arrSimilarB, intersectScratch);
+        },
+      }),
+    },
+    {
+      name: 'micro / intersectSorted / 50k vs 50k (1% overlap)',
+      setup: async () => ({
+        run: () => {
+          intersectSorted(arrLowOverlapA, arrLowOverlapB, intersectScratch);
+        },
+      }),
+    },
+    {
+      name: 'micro / intersectSorted / skewed (100 vs 100k)',
+      setup: async () => ({
+        run: () => {
+          intersectSorted(arrSmallA, arrBigB, intersectScratch);
+        },
+      }),
+    },
+    {
+      name: 'micro / mergeUnionSorted / 8 × 5k',
+      setup: async () => ({
+        run: () => {
+          mergeUnionSorted(unionInputs, unionScratch);
+        },
+      }),
+    },
+    {
+      name: 'micro / filterIndicesByRange / 100k × 2 fields',
+      setup: async () => ({
+        run: () => {
+          filterByRanges(
+            rangeIndices,
+            rangeIndices.length,
+            { slaHours: { min: 0, max: 72 }, createdAt: { min: Date.now() - 14 * 24 * 3600_000 } },
+            rangeColumns,
+            rangeScratch,
+          );
+        },
+      }),
+    },
+    {
+      name: '100k / multi-value IN (8 customers)',
+      setup: async () => ({
+        run: () => {
+          bundle100k.query({
+            equal: {
+              customerId: [
+                'C-ACME', 'C-GLOBEX', 'C-INITECH', 'C-UMBRELLA',
+                'C-TECHNOCORP', 'C-DYNAMICS', 'C-SYSTEMS', 'C-ENTERPRISE',
+              ],
+            },
+          });
+        },
+      }),
+    },
+    {
+      name: '100k / facet counts only (broad equal)',
+      setup: async () => ({
+        run: () => {
+          bundle100k.query({
+            equal: { status: ['open', 'in_progress'] },
+            includeFacetCounts: true,
+            limit: 0,
+          });
+        },
+      }),
+    },
+    {
+      name: '100k / ranges only (no equal)',
+      setup: async () => ({
+        run: () => {
+          bundle100k.query({
+            ranges: {
+              slaHours: { min: 0, max: 72 },
+              createdAt: { min: Date.now() - 14 * 24 * 3600_000 },
+            },
+            limit: 50,
+          });
+        },
+      }),
     },
   ];
 }

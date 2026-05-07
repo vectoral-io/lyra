@@ -1,138 +1,155 @@
-import type { FieldType, RangeBound } from '../types';
-
 const TWO_ARRAYS = 2;
 
 /**
- * Merge multiple sorted arrays into a single sorted, deduplicated array.
- * Uses two-pointer merge approach for efficiency.
- * Optimized for small K (0, 1, 2 arrays).
+ * Read-only sorted-ascending sequence of unique item indices.
+ * Sources may be Uint32Array (in-memory posting lists, scratch buffers) or number[]
+ * (legacy callers). Index access via `[i]` and `.length` is all that's required.
  */
-export function mergeUnionSorted(arrays: number[][]): number[] {
-  // Fast path for empty input
-  if (arrays.length === 0) return [];
-  
-  // Fast path for single array
-  if (arrays.length === 1) return arrays[0];
-  
-  // Fast path for two arrays (common case)
+export type SortedSource = ArrayLike<number>;
+
+/**
+ * Merge K sorted, deduplicated `SortedSource`s into `target` and return the
+ * number of values written. Caller must size `target` to at least the sum of
+ * source lengths to guarantee no overflow.
+ *
+ * Strategy:
+ *  - K = 0/1/2: direct fast path.
+ *  - K ≥ 3: pairwise bottom-up reduction (`O(N log K)` total work) — merge
+ *    pairs into staging buffers each round until two lists remain, then merge
+ *    those into `target`. Allocates K−1 small typed arrays per call but each
+ *    inner merge stays in the cheap two-pointer fast path.
+ */
+export function mergeUnionSorted(
+  arrays: SortedSource[],
+  target: Uint32Array,
+): number {
+  if (arrays.length === 0) return 0;
+
+  if (arrays.length === 1) {
+    const source = arrays[0];
+    const len = source.length;
+    for (let i = 0; i < len; i++) target[i] = source[i];
+    return len;
+  }
+
   if (arrays.length === TWO_ARRAYS) {
-    return mergeUnionTwoSorted(arrays[0], arrays[1]);
+    return mergeUnionTwoSorted(arrays[0], arrays[1], target);
   }
 
-  // General case: K > 2
-  const result: number[] = [];
-  const pointers: number[] = new Array(arrays.length).fill(0);
-
-  while (true) {
-    let minValue = Infinity;
-    let minIndex = -1;
-
-    // Find the minimum value across all arrays
-    for (let arrayIndex = 0; arrayIndex < arrays.length; arrayIndex++) {
-      const pointer = pointers[arrayIndex];
-      const array = arrays[arrayIndex];
-      if (pointer < array.length) {
-        const value = array[pointer];
-        if (value < minValue) {
-          minValue = value;
-          minIndex = arrayIndex;
-        }
+  let current: SortedSource[] = arrays;
+  while (current.length > TWO_ARRAYS) {
+    const next: SortedSource[] = [];
+    for (let i = 0; i < current.length; i += TWO_ARRAYS) {
+      if (i + 1 >= current.length) {
+        next.push(current[i]);
+        continue;
       }
+      const left = current[i];
+      const right = current[i + 1];
+      const merged = new Uint32Array(left.length + right.length);
+      const len = mergeUnionTwoSorted(left, right, merged);
+      next.push(len === merged.length ? merged : merged.subarray(0, len));
     }
-
-    if (minIndex === -1) break; // All arrays exhausted
-
-    // Add minValue to result (skip if duplicate)
-    if (result.length === 0 || result[result.length - 1] !== minValue) {
-      result.push(minValue);
-    }
-
-    // Advance all pointers that point to minValue
-    for (let arrayIndex = 0; arrayIndex < arrays.length; arrayIndex++) {
-      const pointer = pointers[arrayIndex];
-      const array = arrays[arrayIndex];
-      if (pointer < array.length && array[pointer] === minValue) {
-        pointers[arrayIndex]++;
-      }
-    }
+    current = next;
   }
 
-  return result;
+  return mergeUnionTwoSorted(current[0], current[1], target);
 }
 
 /**
- * Merge two sorted arrays into a single sorted, deduplicated array.
- * Optimized 2-way merge for common case.
+ * Two-way sorted-deduped union into `target`. Returns number of values written.
  * @internal
  */
-function mergeUnionTwoSorted(listA: number[], listB: number[]): number[] {
-  const result: number[] = [];
+function mergeUnionTwoSorted(
+  listA: SortedSource,
+  listB: SortedSource,
+  target: Uint32Array,
+): number {
+  let writeIndex = 0;
   let pointerA = 0;
   let pointerB = 0;
+  const lenA = listA.length;
+  const lenB = listB.length;
 
-  while (pointerA < listA.length && pointerB < listB.length) {
+  while (pointerA < lenA && pointerB < lenB) {
     const valueA = listA[pointerA];
     const valueB = listB[pointerB];
 
     if (valueA < valueB) {
-      if (result.length === 0 || result[result.length - 1] !== valueA) {
-        result.push(valueA);
+      if (writeIndex === 0 || target[writeIndex - 1] !== valueA) {
+        target[writeIndex++] = valueA;
       }
       pointerA++;
     }
     else if (valueA > valueB) {
-      if (result.length === 0 || result[result.length - 1] !== valueB) {
-        result.push(valueB);
+      if (writeIndex === 0 || target[writeIndex - 1] !== valueB) {
+        target[writeIndex++] = valueB;
       }
       pointerB++;
     }
     else {
-      // Values match
-      if (result.length === 0 || result[result.length - 1] !== valueA) {
-        result.push(valueA);
+      if (writeIndex === 0 || target[writeIndex - 1] !== valueA) {
+        target[writeIndex++] = valueA;
       }
       pointerA++;
       pointerB++;
     }
   }
 
-  // Append remaining elements from listA
-  while (pointerA < listA.length) {
+  while (pointerA < lenA) {
     const valueA = listA[pointerA];
-    if (result.length === 0 || result[result.length - 1] !== valueA) {
-      result.push(valueA);
+    if (writeIndex === 0 || target[writeIndex - 1] !== valueA) {
+      target[writeIndex++] = valueA;
     }
     pointerA++;
   }
 
-  // Append remaining elements from listB
-  while (pointerB < listB.length) {
+  while (pointerB < lenB) {
     const valueB = listB[pointerB];
-    if (result.length === 0 || result[result.length - 1] !== valueB) {
-      result.push(valueB);
+    if (writeIndex === 0 || target[writeIndex - 1] !== valueB) {
+      target[writeIndex++] = valueB;
     }
     pointerB++;
   }
 
-  return result;
+  return writeIndex;
 }
 
 
 /**
- * Intersect two sorted arrays using two-pointer algorithm.
- * Writes result to target array (clears and reuses it).
+ * Intersect two sorted, deduped sequences into `target`. Returns the number
+ * of values written. Caller sizes `target` ≥ `min(listA.length, listB.length)`.
+ *
+ * Switches between two algorithms based on size skew:
+ *  - Two-pointer merge when sizes are comparable: O(|A| + |B|).
+ *  - Galloping (exponential then binary search) when one list is much larger:
+ *    O(|small| · log(|large| / |small|)). Crosses over once the ratio exceeds
+ *    `GALLOP_RATIO` (64), where galloping wins decisively.
  */
-export function intersectSorted(
-  listA: number[],
-  listB: number[],
-  target: number[],
-): void {
-  target.length = 0; // Clear target array
+const GALLOP_RATIO = 64;
 
+export function intersectSorted(
+  listA: SortedSource,
+  listB: SortedSource,
+  target: Uint32Array,
+): number {
+  const lenA = listA.length;
+  const lenB = listB.length;
+
+  if (lenA === 0 || lenB === 0) return 0;
+
+  if (lenA <= lenB) {
+    if (lenB / lenA > GALLOP_RATIO) return gallopIntersect(listA, listB, target);
+  }
+  else if (lenA / lenB > GALLOP_RATIO) {
+    return gallopIntersect(listB, listA, target);
+  }
+
+  let writeIndex = 0;
   let pointerA = 0;
   let pointerB = 0;
 
-  while (pointerA < listA.length && pointerB < listB.length) {
+  while (pointerA < lenA && pointerB < lenB) {
     const valueA = listA[pointerA];
     const valueB = listB[pointerB];
 
@@ -143,100 +160,60 @@ export function intersectSorted(
       pointerB++;
     }
     else {
-      // Values match
-      target.push(valueA);
+      target[writeIndex++] = valueA;
       pointerA++;
       pointerB++;
     }
   }
+
+  return writeIndex;
 }
 
-
 /**
- * Convert a raw value to a numeric value for range filtering.
- * Handles both number and date types based on field type.
+ * Galloping intersection: walk `small` in order, exponential-then-binary-search
+ * for each value in `big`. Maintains a monotonic lower bound `lo` so total
+ * search work stays O(|small| · log(|big| / |small|)).
  * @internal
  */
-function toNumericRangeValue(raw: unknown, fieldType: FieldType): number | null {
-  if (raw == null) {
-    return null;
-  }
+function gallopIntersect(
+  small: SortedSource,
+  big: SortedSource,
+  target: Uint32Array,
+): number {
+  const lenSmall = small.length;
+  const lenBig = big.length;
+  let writeIndex = 0;
+  let lo = 0;
 
-  if (typeof raw === 'number') {
-    return raw;
-  }
+  for (let i = 0; i < lenSmall; i++) {
+    if (lo >= lenBig) break;
+    const value = small[i];
 
-  if (fieldType === 'date') {
-    const parsed = Date.parse(String(raw));
-    return Number.isNaN(parsed) ? null : parsed;
-  }
-
-  // For 'number' type fields that aren't already numbers, try to parse
-  if (fieldType === 'number') {
-    const parsed = Number(raw);
-    return Number.isNaN(parsed) ? null : parsed;
-  }
-
-  // For 'string' or 'boolean' types, return null (invalid for ranges)
-  return null;
-}
-
-/**
- * Filter indices array by range conditions, checking items at those indices.
- * Writes result to target array (clears and reuses it).
- * 
- * Range semantics:
- * - Range `min` and `max` values must be numbers
- * - For date fields, pass epoch milliseconds (e.g., `Date.parse(isoString)`)
- * - Items are included if their value is >= `min` (if provided) and <= `max` (if provided)
- */
-export function filterIndicesByRange<T extends Record<string, unknown>>(
-  indices: number[],
-  items: T[],
-  ranges: Record<string, RangeBound>,
-  fieldTypes: Record<string, FieldType>,
-  target: number[],
-): void {
-  target.length = 0; // Clear target array
-
-  // Pre-compute field type lookups for fields actually in the query
-  const rangeFields = Object.keys(ranges);
-  
-  for (const idx of indices) {
-    const item = items[idx] as Record<string, unknown>;
-    let passes = true;
-
-    // Only process fields present in query.ranges
-    for (const field of rangeFields) {
-      const rawValue = item[field];
-      const fieldType = fieldTypes[field];
-      
-      if (rawValue == null) {
-        passes = false;
-        break;
-      }
-
-      const numericValue = toNumericRangeValue(rawValue, fieldType);
-      
-      if (numericValue === null) {
-        passes = false;
-        break;
-      }
-
-      const range = ranges[field];
-      if (range.min != null && numericValue < range.min) {
-        passes = false;
-        break;
-      }
-      if (range.max != null && numericValue > range.max) {
-        passes = false;
-        break;
-      }
+    // Exponentially expand the search bound until big[lo + bound] >= value.
+    let bound = 1;
+    while (lo + bound < lenBig && big[lo + bound] < value) {
+      bound <<= 1;
     }
 
-    if (passes) {
-      target.push(idx);
+    // Binary search in big[lo .. min(lo + bound, lenBig)) for value.
+    let left = lo;
+    let right = lo + bound < lenBig ? lo + bound : lenBig;
+    while (left < right) {
+      const mid = (left + right) >>> 1;
+      if (big[mid] < value) left = mid + 1;
+      else right = mid;
+    }
+
+    if (left < lenBig && big[left] === value) {
+      target[writeIndex++] = value;
+      lo = left + 1;
+    }
+    else {
+      lo = left;
     }
   }
+
+  return writeIndex;
 }
+
 

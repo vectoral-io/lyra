@@ -1,11 +1,12 @@
 import type {
   CreateBundleConfig,
-  FacetPostingLists,
   FieldKind,
   FieldType,
+  InMemoryFacetIndex,
+  InMemoryNullIndex,
   LookupTable,
   LyraManifest,
-  NullPostingLists,
+  RangeColumns,
 } from '../types';
 
 /** Current bundle format major version. */
@@ -161,52 +162,62 @@ export function validateManifest(manifest: LyraManifest): void {
 }
 
 /**
- * Build facet index from items and manifest.
+ * Build the in-memory facet index from items and manifest.
  *
- * Posting lists are sorted ascending and deduplicated at build time.
+ * Single-pass push with a tail-of-list dedup guard so each posting list comes
+ * out strictly ascending without an explicit sort. Items are visited in
+ * ascending index order; the only way a duplicate can appear in a bucket is
+ * when one item lists the same value twice in an array-valued facet (e.g.
+ * `tags: ['a','a']`), which the tail check filters in O(1) per push.
  * @internal
  */
 export function buildFacetIndex<T extends Record<string, unknown>>(
   items: T[],
   manifest: LyraManifest,
-): FacetPostingLists {
+): InMemoryFacetIndex {
   const facetFields = manifest.capabilities.facets;
-  const facetIndex: FacetPostingLists = {};
+  const transient: Record<string, Record<string, number[]>> = {};
+  for (const field of facetFields) transient[field] = {};
 
-  for (const field of facetFields) facetIndex[field] = {};
-
-  items.forEach((item, idx) => {
+  for (let idx = 0; idx < items.length; idx++) {
+    const item = items[idx] as Record<string, unknown>;
     for (const field of facetFields) {
-      const raw = (item as Record<string, unknown>)[field];
+      const raw = item[field];
       if (raw === undefined || raw === null) continue;
 
-      const values = Array.isArray(raw) ? raw : [raw];
-      for (const value of values) {
-        const valueKey = String(value);
-        let postings = facetIndex[field][valueKey];
+      const byValue = transient[field];
+      if (Array.isArray(raw)) {
+        for (const value of raw) {
+          const valueKey = String(value);
+          let postings = byValue[valueKey];
+          if (!postings) {
+            postings = [];
+            byValue[valueKey] = postings;
+          }
+          if (postings[postings.length - 1] !== idx) postings.push(idx);
+        }
+      }
+      else {
+        const valueKey = String(raw);
+        let postings = byValue[valueKey];
         if (!postings) {
           postings = [];
-          facetIndex[field][valueKey] = postings;
+          byValue[valueKey] = postings;
         }
+        // Non-array path: idx strictly increases over items, so no dedup needed.
         postings.push(idx);
       }
     }
-  });
+  }
 
-  // Sort + dedupe in place.
+  const facetIndex: InMemoryFacetIndex = {};
   for (const field of facetFields) {
-    const byValue = facetIndex[field];
+    const byValue = transient[field];
+    const out: Record<string, Uint32Array> = {};
     for (const valueKey in byValue) {
-      const postings = byValue[valueKey];
-      postings.sort((indexA, indexB) => indexA - indexB);
-      let writeIndex = 0;
-      for (let readIndex = 0; readIndex < postings.length; readIndex++) {
-        if (readIndex === 0 || postings[readIndex] !== postings[readIndex - 1]) {
-          postings[writeIndex++] = postings[readIndex];
-        }
-      }
-      postings.length = writeIndex;
+      out[valueKey] = new Uint32Array(byValue[valueKey]);
     }
+    facetIndex[field] = out;
   }
 
   return facetIndex;
@@ -216,30 +227,85 @@ export function buildFacetIndex<T extends Record<string, unknown>>(
  * Build a sorted posting list of indices where each indexable field is null/undefined.
  *
  * Covers facet, range, and alias fields — any field a user might reference in
- * `isNull`/`isNotNull` or in `equal: { field: [val, null] }`.
+ * `isNull`/`isNotNull` or in `equal: { field: [val, null] }`. Single-pass push
+ * into `number[]`, converted to Uint32Array at the end. Already ascending
+ * since items are visited in order.
  *
  * @internal
  */
 export function buildNullIndex<T extends Record<string, unknown>>(
   items: T[],
   manifest: LyraManifest,
-): NullPostingLists {
+): InMemoryNullIndex {
   const indexable = manifest.fields.filter(
     (fld) => fld.kind === 'facet' || fld.kind === 'range' || fld.kind === 'alias',
   );
-  const nullIndex: NullPostingLists = {};
-  for (const field of indexable) nullIndex[field.name] = [];
+
+  const transient: Record<string, number[]> = {};
+  for (const field of indexable) transient[field.name] = [];
 
   for (let idx = 0; idx < items.length; idx++) {
     const item = items[idx] as Record<string, unknown>;
     for (const field of indexable) {
       const value = item[field.name];
-      if (value === null || value === undefined) nullIndex[field.name].push(idx);
+      if (value === null || value === undefined) transient[field.name].push(idx);
     }
   }
 
-  // Already ascending since we iterate in order; no dedupe needed.
+  const nullIndex: InMemoryNullIndex = {};
+  for (const field of indexable) {
+    nullIndex[field.name] = new Uint32Array(transient[field.name]);
+  }
+
   return nullIndex;
+}
+
+/**
+ * Build columnar Float64Array storage for range fields. One column per range
+ * field, length = items.length. Entries are coerced once: numbers passthrough,
+ * date strings via `Date.parse`, anything else → NaN. Range filtering then
+ * reads numeric columns directly, no per-query property access or parsing.
+ * @internal
+ */
+export function buildRangeColumns<T extends Record<string, unknown>>(
+  items: T[],
+  manifest: LyraManifest,
+): RangeColumns {
+  const rangeFields = manifest.fields.filter((fld) => fld.kind === 'range');
+  const columns: RangeColumns = {};
+
+  for (const field of rangeFields) {
+    const col = new Float64Array(items.length);
+    const fieldName = field.name;
+    const fieldType = field.type;
+
+    for (let idx = 0; idx < items.length; idx++) {
+      const raw = items[idx][fieldName];
+      if (raw == null) {
+        col[idx] = Number.NaN;
+        continue;
+      }
+      if (typeof raw === 'number') {
+        col[idx] = raw;
+        continue;
+      }
+      if (fieldType === 'date') {
+        const parsed = Date.parse(String(raw));
+        col[idx] = Number.isNaN(parsed) ? Number.NaN : parsed;
+        continue;
+      }
+      if (fieldType === 'number') {
+        const parsed = Number(raw);
+        col[idx] = Number.isNaN(parsed) ? Number.NaN : parsed;
+        continue;
+      }
+      col[idx] = Number.NaN;
+    }
+
+    columns[fieldName] = col;
+  }
+
+  return columns;
 }
 
 /**

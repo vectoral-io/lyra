@@ -1,68 +1,87 @@
-import type { FieldType, RangeBound, Scalar } from '../types';
+import type { RangeBound, Scalar } from '../types';
+import type { SortedSource } from '../utils/array-operations';
 import * as arrayOps from '../utils/array-operations';
 
 /**
- * Filter indices by null/not-null constraints.
+ * Filter `indices[0..indicesLen)` by null/not-null constraints, writing kept
+ * indices into `target`. Returns number of values written.
  *
- * Uses precomputed null posting lists when available to stay in the posting-list
- * asymptotic model; falls back to a linear scan for fields without an index entry.
+ * Uses precomputed null posting lists when available to stay in the
+ * posting-list asymptotic model; falls back to a linear scan otherwise.
  *
- * Writes the result to `scratch` (clearing it first) and returns the same reference.
+ * `bufA` and `bufB` are double-buffer scratches sized ≥ items.length, owned by
+ * the caller. They get clobbered. `target` may be the same physical buffer as
+ * one of them so long as the caller doesn't need its prior contents.
  *
  * @internal
  */
 export function filterByNullChecks<T>(
-  indices: number[],
+  indices: SortedSource,
+  indicesLen: number,
   items: T[],
   nullChecks: { isNull: string[]; isNotNull: string[] },
-  nullIndex: Record<string, number[]>,
-  scratch: number[],
-): number[] {
+  nullIndex: Record<string, Uint32Array>,
+  bufA: Uint32Array,
+  bufB: Uint32Array,
+  target: Uint32Array,
+): number {
   if (nullChecks.isNull.length === 0 && nullChecks.isNotNull.length === 0) {
-    return indices;
+    if (target !== indices) {
+      for (let i = 0; i < indicesLen; i++) target[i] = indices[i];
+    }
+    return indicesLen;
   }
 
-  // Fast path: every required field has a null posting list → reduce via intersect/difference.
   const allIndexed =
     nullChecks.isNull.every((field) => nullIndex[field] !== undefined) &&
     nullChecks.isNotNull.every((field) => nullIndex[field] !== undefined);
 
   if (allIndexed) {
-    // Double-buffered reduction across fields.
-    let current = indices.slice();
-    const tmp: number[] = [];
+    let current: Uint32Array = bufA;
+    let next: Uint32Array = bufB;
+    let currentLen = indicesLen;
+    for (let i = 0; i < indicesLen; i++) current[i] = indices[i];
 
     for (const field of nullChecks.isNull) {
-      arrayOps.intersectSorted(current, nullIndex[field], tmp);
-      if (tmp.length === 0) {
-        scratch.length = 0; return scratch; 
-      }
-      current = tmp.slice();
+      const writtenLen = arrayOps.intersectSorted(
+        current.subarray(0, currentLen),
+        nullIndex[field],
+        next,
+      );
+      if (writtenLen === 0) return 0;
+      const tmp = current; current = next; next = tmp;
+      currentLen = writtenLen;
     }
 
     for (const field of nullChecks.isNotNull) {
-      differenceSorted(current, nullIndex[field], tmp);
-      if (tmp.length === 0) {
-        scratch.length = 0; return scratch; 
-      }
-      current = tmp.slice();
+      const writtenLen = differenceSorted(
+        current,
+        currentLen,
+        nullIndex[field],
+        next,
+      );
+      if (writtenLen === 0) return 0;
+      const tmp = current; current = next; next = tmp;
+      currentLen = writtenLen;
     }
 
-    scratch.length = 0;
-    for (let i = 0; i < current.length; i++) scratch.push(current[i]);
-    return scratch;
+    if (target !== current) {
+      for (let i = 0; i < currentLen; i++) target[i] = current[i];
+    }
+    return currentLen;
   }
 
-  // Fallback: linear scan over `items` for fields not covered by nullIndex.
-  scratch.length = 0;
-  for (const idx of indices) {
+  // Fallback linear scan.
+  let writeIndex = 0;
+  for (let i = 0; i < indicesLen; i++) {
+    const idx = indices[i];
     const item = items[idx] as Record<string, unknown>;
     let ok = true;
 
     for (const field of nullChecks.isNull) {
       const value = item[field];
       if (value !== null && value !== undefined) {
-        ok = false; break;
+        ok = false; break; 
       }
     }
     if (!ok) continue;
@@ -70,133 +89,135 @@ export function filterByNullChecks<T>(
     for (const field of nullChecks.isNotNull) {
       const value = item[field];
       if (value === null || value === undefined) {
-        ok = false; break;
+        ok = false; break; 
       }
     }
-    if (ok) scratch.push(idx);
+    if (ok) target[writeIndex++] = idx;
   }
-  return scratch;
+  return writeIndex;
 }
 
 /**
  * Exclude items whose value in any `excludes` field matches.
  *
- * notEqual applies only to non-null item values (null-handling goes through isNull/isNotNull).
- *
- * Writes to `scratch` and returns it.
+ * notEqual applies only to non-null item values (null-handling goes through
+ * isNull/isNotNull). Writes to `target`, returns number written.
  *
  * @internal
  */
 export function filterByExclusions<T>(
-  indices: number[],
+  indices: SortedSource,
+  indicesLen: number,
   items: T[],
   excludes: Record<string, Scalar | Scalar[]>,
-  scratch: number[],
-): number[] {
-  if (Object.keys(excludes).length === 0) return indices;
-  if (indices === scratch) {
-    throw new Error('filterByExclusions: indices and scratch must not alias');
+  target: Uint32Array,
+): number {
+  const excludeFields = Object.keys(excludes);
+  if (excludeFields.length === 0) {
+    if (target !== indices) {
+      for (let i = 0; i < indicesLen; i++) target[i] = indices[i];
+    }
+    return indicesLen;
   }
 
-  scratch.length = 0;
+  // Hoist value-array shape outside the inner loop.
+  const fieldValues: { field: string; values: Scalar[] }[] = excludeFields.map((field) => {
+    const value = excludes[field];
+    return { field, values: Array.isArray(value) ? value : [value] };
+  });
 
-  for (const idx of indices) {
+  let writeIndex = 0;
+  for (let i = 0; i < indicesLen; i++) {
+    const idx = indices[i];
     const item = items[idx] as Record<string, unknown>;
     let excluded = false;
 
-    for (const [field, value] of Object.entries(excludes)) {
+    for (const { field, values } of fieldValues) {
       const itemValue = item[field];
       if (itemValue === null || itemValue === undefined) continue;
-
-      const values = Array.isArray(value) ? value : [value];
       if (values.includes(itemValue as Scalar)) {
         excluded = true; break; 
       }
     }
 
-    if (!excluded) scratch.push(idx);
+    if (!excluded) target[writeIndex++] = idx;
   }
-
-  return scratch;
+  return writeIndex;
 }
 
 /**
- * Coerce a raw item value into a comparable numeric for range filtering.
- * Returns null for values that cannot be safely compared under the declared field type.
+ * Filter `indices[0..indicesLen)` to those satisfying every range bound.
+ *
+ * Range fields are read from precomputed `Float64Array` columns (one entry per
+ * item; `NaN` means missing or unparsable, which fails any numeric comparison
+ * and is therefore excluded). Writes kept indices to `target`; returns count.
+ *
  * @internal
  */
-function toNumericRangeValue(raw: unknown, fieldType: FieldType): number | null {
-  if (raw == null) return null;
-  if (typeof raw === 'number') return raw;
-  if (fieldType === 'date') {
-    const parsed = Date.parse(String(raw));
-    return Number.isNaN(parsed) ? null : parsed;
-  }
-  if (fieldType === 'number') {
-    const parsed = Number(raw);
-    return Number.isNaN(parsed) ? null : parsed;
-  }
-  return null;
-}
-
-/**
- * Filter `indices` down to items that satisfy every range bound.
- * Writes to `scratch` and returns it.
- * @internal
- */
-export function filterByRanges<T extends Record<string, unknown>>(
-  indices: number[],
-  items: T[],
+export function filterByRanges(
+  indices: SortedSource,
+  indicesLen: number,
   ranges: Record<string, RangeBound>,
-  fieldTypes: Record<string, FieldType>,
-  scratch: number[],
-): number[] {
-  if (Object.keys(ranges).length === 0) return indices;
-  if (indices === scratch) {
-    throw new Error('filterByRanges: indices and scratch must not alias');
+  rangeColumns: Record<string, Float64Array>,
+  target: Uint32Array,
+): number {
+  const rangeFields = Object.keys(ranges);
+  if (rangeFields.length === 0) {
+    if (target !== indices) {
+      for (let i = 0; i < indicesLen; i++) target[i] = indices[i];
+    }
+    return indicesLen;
   }
 
-  scratch.length = 0;
-  const rangeFields = Object.keys(ranges);
+  // Hoist (column, min, max) tuples so the inner loop has no per-row Object lookup cost.
+  // NaN bounds are treated as "no bound" to preserve prior semantics where
+  // `min < NaN` / `max > NaN` always evaluated false and didn't exclude items.
+  const tuples = rangeFields.map((field) => {
+    const range = ranges[field];
+    const min = range.min == null || Number.isNaN(range.min) ? -Infinity : range.min;
+    const max = range.max == null || Number.isNaN(range.max) ? Infinity : range.max;
+    return { col: rangeColumns[field], min, max };
+  });
 
-  for (const idx of indices) {
-    const item = items[idx];
+  let writeIndex = 0;
+  for (let i = 0; i < indicesLen; i++) {
+    const idx = indices[i];
     let passes = true;
 
-    for (const field of rangeFields) {
-      const numeric = toNumericRangeValue(item[field], fieldTypes[field]);
-      if (numeric === null) {
-        passes = false; break; 
-      }
-      const { min, max } = ranges[field];
-      if (min != null && numeric < min) {
-        passes = false; break; 
-      }
-      if (max != null && numeric > max) {
-        passes = false; break; 
+    for (const tuple of tuples) {
+      const value = tuple.col[idx];
+      if (!(value >= tuple.min) || !(value <= tuple.max)) {
+        passes = false;
+        break;
       }
     }
 
-    if (passes) scratch.push(idx);
+    if (passes) target[writeIndex++] = idx;
   }
 
-  return scratch;
+  return writeIndex;
 }
 
 /**
- * Sorted set difference: elements of `a` not present in `b`.
- * Both arrays must be sorted ascending; writes to `target`.
+ * Sorted set difference: elements of `listA[0..lenA)` not present in `listB`.
+ * Writes to `target`; returns count written.
  * @internal
  */
-function differenceSorted(listA: number[], listB: number[], target: number[]): void {
-  target.length = 0;
+function differenceSorted(
+  listA: SortedSource,
+  lenA: number,
+  listB: SortedSource,
+  target: Uint32Array,
+): number {
+  let writeIndex = 0;
   let i = 0;
   let j = 0;
-  while (i < listA.length && j < listB.length) {
+  const lenB = listB.length;
+  while (i < lenA && j < lenB) {
     const av = listA[i];
     const bv = listB[j];
     if (av < bv) {
-      target.push(av); i++;
+      target[writeIndex++] = av; i++;
     }
     else if (av > bv) {
       j++;
@@ -205,7 +226,8 @@ function differenceSorted(listA: number[], listB: number[], target: number[]): v
       i++; j++;
     }
   }
-  while (i < listA.length) {
-    target.push(listA[i]); i++;
+  while (i < lenA) {
+    target[writeIndex++] = listA[i]; i++;
   }
+  return writeIndex;
 }

@@ -325,7 +325,7 @@ export type AnyBundleConfig<TItem extends Record<string, unknown>> =
   | SimpleBundleConfig<TItem>;
 
 /**
- * Internal type for facet posting lists (not exported, but needed for bundle JSON).
+ * Bundle JSON format for facet posting lists. Postings serialize as `number[]`.
  * @internal
  */
 export type FacetPostingLists = {
@@ -335,11 +335,35 @@ export type FacetPostingLists = {
 };
 
 /**
- * Sorted posting lists of item indices with null/undefined for each indexed field.
- * Built at bundle creation so isNull/isNotNull filters stay in the posting-list model.
+ * In-memory facet posting lists. Backed by Uint32Array for cache locality and
+ * GC-free intersections; converted to/from `FacetPostingLists` at the JSON edge.
+ * @internal
+ */
+export type InMemoryFacetIndex = {
+  [field: string]: {
+    [valueKey: string]: Uint32Array;
+  };
+};
+
+/**
+ * Bundle JSON format for null posting lists. Postings serialize as `number[]`.
  * @internal
  */
 export type NullPostingLists = Record<string, number[]>;
+
+/**
+ * In-memory null posting lists, keyed by field name; Uint32Array per field.
+ * @internal
+ */
+export type InMemoryNullIndex = Record<string, Uint32Array>;
+
+/**
+ * In-memory columnar storage for range fields. One `Float64Array` per range
+ * field, length = items.length, NaN for null/unparsable entries. Built from
+ * items at bundle creation/load — never serialized.
+ * @internal
+ */
+export type RangeColumns = Record<string, Float64Array>;
 
 /**
  * Serialized bundle format (v3).
