@@ -1,6 +1,6 @@
 {
   "name": "@vectoral/lyra",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "type": "module",
   "description": "A lightweight engine for building precomputed, faceted index bundles from structured data",
   "keywords": [
