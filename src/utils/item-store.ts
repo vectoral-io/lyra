@@ -39,8 +39,12 @@ export interface ItemStore<T extends Record<string, unknown>> {
   materializeRow(idx: number): T;
   /** Materialize the full row collection. Used by `toJSON` / `serialize('binary')`. */
   materializeAll(): T[];
-  /** Materialize a contiguous slice of rows referenced by `indices`. */
-  materializeMany(indices: ArrayLike<number>, start: number, len: number): T[];
+  /**
+   * Materialize a contiguous slice of rows referenced by `indices`. When
+   * `fields` is provided, each row is projected down to those fields (present,
+   * non-`undefined` values only).
+   */
+  materializeMany(indices: ArrayLike<number>, start: number, len: number, fields?: string[]): T[];
 }
 
 export class RowItemStore<T extends Record<string, unknown>> implements ItemStore<T> {
@@ -62,16 +66,36 @@ export class RowItemStore<T extends Record<string, unknown>> implements ItemStor
     return this.rows;
   }
 
-  materializeMany(indices: ArrayLike<number>, start: number, len: number): T[] {
+  materializeMany(indices: ArrayLike<number>, start: number, len: number, fields?: string[]): T[] {
     const out: T[] = new Array(len);
+    if (fields) {
+      for (let i = 0; i < len; i++) out[i] = projectRow<T>(this.rows[indices[start + i]], fields);
+      return out;
+    }
     for (let i = 0; i < len; i++) out[i] = this.rows[indices[start + i]];
     return out;
   }
 }
 
+/**
+ * Build a shallow copy of `row` limited to `fields`. Mirrors `ColumnarItemStore`
+ * projection semantics: only present, non-`undefined` values are copied.
+ */
+function projectRow<T extends Record<string, unknown>>(row: T, fields: string[]): T {
+  const out: Record<string, unknown> = {};
+  for (const field of fields) {
+    const value = (row as Record<string, unknown>)[field];
+    if (value !== undefined) out[field] = value;
+  }
+  return out as T;
+}
+
 // ---- Columnar encoding ----
 
 export type ColumnEncoding = 'utf8-dict' | 'f64' | 'u8-bool' | 'json-fallback';
+
+/** Decode a single column by field name. Used to back a lazy `ColumnarItemStore`. */
+export type ColumnLoader = (field: string) => Column;
 
 /**
  * Per-field columnar storage. Each column carries a null bitmap (1 bit per
@@ -290,21 +314,64 @@ function readColumnValue(col: Column, idx: number): unknown {
 }
 
 export class ColumnarItemStore<T extends Record<string, unknown>> implements ItemStore<T> {
+  readonly fieldNames: string[];
+  readonly length: number;
+  private readonly fieldSet: Set<string>;
+  // Decoded columns, memoized. Pre-filled from `columns` on eager construction;
+  // populated on demand from `loader` on a lazy store.
+  private readonly decoded = new Map<string, Column>();
+  private readonly loader?: ColumnLoader;
+
+  /**
+   * Construct from already-decoded `columns` (eager — used at build time and by
+   * tests), or pass a `loader` to decode each column on first access. A lazy
+   * store only ever decodes the columns a query actually reads, so a wide
+   * bundle queried on a handful of fields skips materializing the rest.
+   */
   constructor(
-    public readonly columns: Record<string, Column>,
-    public readonly fieldNames: string[],
-    public readonly length: number,
-  ) {}
+    columns: Record<string, Column>,
+    fieldNames: string[],
+    length: number,
+    loader?: ColumnLoader,
+  ) {
+    this.fieldNames = fieldNames;
+    this.length = length;
+    this.fieldSet = new Set(fieldNames);
+    this.loader = loader;
+    for (const field in columns) this.decoded.set(field, columns[field]);
+  }
+
+  /**
+   * Construct a lazy store that decodes columns from `loader` on first touch.
+   */
+  static lazy<T extends Record<string, unknown>>(
+    loader: ColumnLoader,
+    fieldNames: string[],
+    length: number,
+  ): ColumnarItemStore<T> {
+    return new ColumnarItemStore<T>({}, fieldNames, length, loader);
+  }
+
+  private column(field: string): Column | undefined {
+    if (!this.fieldSet.has(field)) return undefined;
+    let col = this.decoded.get(field);
+    if (col === undefined && this.loader) {
+      col = this.loader(field);
+      this.decoded.set(field, col);
+    }
+    return col;
+  }
 
   getField(idx: number, field: string): unknown {
-    const col = this.columns[field];
+    const col = this.column(field);
     if (!col) return undefined;
     return readColumnValue(col, idx);
   }
 
-  materializeRow(idx: number): T {
+  materializeRow(idx: number, fields?: string[]): T {
     const out: Record<string, unknown> = {};
-    for (const field of this.fieldNames) {
+    const names = fields ?? this.fieldNames;
+    for (const field of names) {
       const value = this.getField(idx, field);
       if (value !== undefined) out[field] = value;
     }
@@ -317,10 +384,20 @@ export class ColumnarItemStore<T extends Record<string, unknown>> implements Ite
     return out;
   }
 
-  materializeMany(indices: ArrayLike<number>, start: number, len: number): T[] {
+  materializeMany(indices: ArrayLike<number>, start: number, len: number, fields?: string[]): T[] {
     const out: T[] = new Array(len);
-    for (let i = 0; i < len; i++) out[i] = this.materializeRow(indices[start + i]);
+    for (let i = 0; i < len; i++) out[i] = this.materializeRow(indices[start + i], fields);
     return out;
+  }
+
+  /**
+   * Resolve a single column, decoding + memoizing it if lazy. Used when
+   * re-serializing a lazily-loaded bundle.
+   */
+  getColumn(field: string): Column {
+    const col = this.column(field);
+    if (!col) throw new Error(`Column "${field}" not found in ColumnarItemStore`);
+    return col;
   }
 }
 

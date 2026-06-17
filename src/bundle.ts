@@ -77,10 +77,14 @@ export async function createBundle<T extends Record<string, unknown>>(
  * Immutable bundle of items plus a manifest that describes fields and capabilities.
  */
 export class LyraBundle<T extends Record<string, unknown>> {
-  private readonly itemStore: ItemStore<T>;
+  // Heavy structures are held in nullable backing fields so `dispose()` can
+  // release them even while the bundle object itself is still referenced.
+  // Accessed through the getters below, which throw once disposed.
+  private _itemStore: ItemStore<T> | null;
   private readonly manifest: LyraManifest;
-  private readonly facetIndex: InMemoryFacetIndex;
-  private readonly nullIndex: InMemoryNullIndex;
+  private _facetIndex: InMemoryFacetIndex | null;
+  private _nullIndex: InMemoryNullIndex | null;
+  private disposed = false;
   // Lazily built on first range-using query — building Float64Array columns
   // (especially date columns via Date.parse per item) is expensive, so we
   // defer it from bundle creation and pay it once on first use.
@@ -105,11 +109,24 @@ export class LyraBundle<T extends Record<string, unknown>> {
     nullIndex: InMemoryNullIndex,
     preloadedRangeColumns: RangeColumns | null = null,
   ) {
-    this.itemStore = itemStore;
+    this._itemStore = itemStore;
     this.manifest = manifest;
-    this.facetIndex = facetIndex;
-    this.nullIndex = nullIndex;
+    this._facetIndex = facetIndex;
+    this._nullIndex = nullIndex;
     this.cachedRangeColumns = preloadedRangeColumns;
+  }
+
+  private get itemStore(): ItemStore<T> {
+    if (!this._itemStore) throw new Error('Cannot use a disposed LyraBundle');
+    return this._itemStore;
+  }
+  private get facetIndex(): InMemoryFacetIndex {
+    if (!this._facetIndex) throw new Error('Cannot use a disposed LyraBundle');
+    return this._facetIndex;
+  }
+  private get nullIndex(): InMemoryNullIndex {
+    if (!this._nullIndex) throw new Error('Cannot use a disposed LyraBundle');
+    return this._nullIndex;
   }
 
   private get rangeColumns(): RangeColumns {
@@ -300,7 +317,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
     const limit = query.limit != null ? Math.max(0, query.limit) : candidatesLen;
     const end = Math.min(candidatesLen, start + limit);
     const pageLen = end > start ? end - start : 0;
-    let resultItems: T[] = this.itemStore.materializeMany(candidates, start, pageLen);
+    let resultItems: T[] = this.itemStore.materializeMany(candidates, start, pageLen, query.select);
 
     // 8. Optional alias enrichment (opt-in).
     if (this.manifest.capabilities.aliases && this.manifest.capabilities.aliases.length > 0) {
@@ -423,6 +440,38 @@ export class LyraBundle<T extends Record<string, unknown>> {
       builtAt: this.manifest.builtAt,
       indexVersion: this.manifest.version,
     };
+  }
+
+  /**
+   * Whether this bundle has been disposed.
+   */
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
+
+  /**
+   * Release every heavy structure this bundle holds — item columns, facet and
+   * null posting lists, range columns, and the query scratch buffers — so they
+   * can be garbage-collected even if the bundle object itself is still
+   * referenced (e.g. captured in a long-lived cache or component closure).
+   *
+   * Idempotent. After disposal, metadata methods (`describe`, `snapshot`,
+   * `isDisposed`) keep working, but any data operation (`query`,
+   * `getFacetSummary`, `toJSON`, `serialize`) throws.
+   */
+  dispose(): void {
+    this.disposed = true;
+    this._itemStore = null;
+    this._facetIndex = null;
+    this._nullIndex = null;
+    this.cachedRangeColumns = null;
+    this.cachedAllIndices = null;
+    this.cachedBufEqual = null;
+    this.cachedBufRange = null;
+    this.cachedBufNull = null;
+    this.cachedBufExcl = null;
+    this.cachedBufWorkA = null;
+    this.cachedBufWorkB = null;
   }
 
   /**
@@ -627,8 +676,8 @@ export class LyraBundle<T extends Record<string, unknown>> {
 
     const itemStore: ItemStore<TItem> = decoded.items.kind === 'rows'
       ? new RowItemStore<TItem>(decoded.items.rows)
-      : new ColumnarItemStore<TItem>(
-        decoded.items.columns,
+      : ColumnarItemStore.lazy<TItem>(
+        decoded.items.loadColumn,
         decoded.items.fieldNames,
         decoded.items.length,
       );
@@ -650,15 +699,16 @@ export class LyraBundle<T extends Record<string, unknown>> {
    * @internal
    */
   private itemStoreAsV4Input(): import('./utils/binary-bundle').V4ItemsInput<T> {
-    if (this.itemStore instanceof ColumnarItemStore) {
+    const store = this.itemStore;
+    if (store instanceof ColumnarItemStore) {
       return {
         kind: 'columnar',
-        columns: this.itemStore.columns,
-        fieldNames: this.itemStore.fieldNames,
-        length: this.itemStore.length,
+        loadColumn: (field) => store.getColumn(field),
+        fieldNames: store.fieldNames,
+        length: store.length,
       };
     }
-    return { kind: 'rows', rows: this.itemStore.materializeAll() };
+    return { kind: 'rows', rows: store.materializeAll() };
   }
 
   // ---- Private helpers ----

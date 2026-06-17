@@ -97,6 +97,20 @@ export interface LyraQuery {
   offset?: number;
 
   /**
+   * Restrict materialized result items to these fields (projection).
+   *
+   * When set, each returned item contains only the listed fields that are
+   * present on the row (missing / `undefined` values are omitted). This trims
+   * per-result allocation and, on columnar (binary-loaded) bundles, avoids
+   * decoding columns you never select. Filtering, `total`, and facet counts are
+   * unaffected — projection only shapes the returned `items`.
+   *
+   * Note: fields consumed by `enrichAliases` (the canonical ID fields) must be
+   * included here, otherwise enrichment has nothing to resolve against.
+   */
+  select?: string[];
+
+  /**
    * Whether to include facet counts in the result.
    * Facet counts are computed over the filtered result set.
    */

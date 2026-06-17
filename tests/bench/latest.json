@@ -1,160 +1,160 @@
 {
-  "generatedAt": "2026-05-07T11:48:03.408Z",
+  "generatedAt": "2026-06-17T03:37:55.689Z",
   "results": {
     "100k / single facet (customerId)": {
-      "iterations": 5000,
-      "meanMs": 0.013381324999999998,
-      "p99Ms": 0.023430840000000046
+      "iterations": 100,
+      "meanMs": 0.03226832999999999,
+      "p99Ms": 0.08379200000001674
     },
     "100k / multi-facet + ranges + pagination": {
-      "iterations": 5000,
-      "meanMs": 0.3291930832,
-      "p99Ms": 0.36085915999999996
+      "iterations": 100,
+      "meanMs": 0.4247275000000002,
+      "p99Ms": 1.207415999999995
     },
     "10k / full feature set": {
-      "iterations": 5000,
-      "meanMs": 0.03940785000000001,
-      "p99Ms": 0.055190840000000206
+      "iterations": 100,
+      "meanMs": 0.08126708000000007,
+      "p99Ms": 1.2256669999999872
     },
     "100k / canonical facet (baseline)": {
-      "iterations": 5000,
-      "meanMs": 0.013783641800000078,
-      "p99Ms": 0.02310833999999886
+      "iterations": 100,
+      "meanMs": 0.025831670000000032,
+      "p99Ms": 0.5988330000000133
     },
     "100k / alias resolution": {
-      "iterations": 5000,
-      "meanMs": 0.013308341599999949,
-      "p99Ms": 0.02025249999999687
+      "iterations": 100,
+      "meanMs": 0.023654160000000105,
+      "p99Ms": 0.10370800000001168
     },
     "100k / enrichAliases: true": {
-      "iterations": 5000,
-      "meanMs": 0.5053537332000001,
-      "p99Ms": 0.5929583199999979
+      "iterations": 100,
+      "meanMs": 0.7086445899999998,
+      "p99Ms": 1.8256250000000023
     },
     "100k / enrichAliases: false": {
-      "iterations": 5000,
-      "meanMs": 0.013987291800000093,
-      "p99Ms": 0.02398581999999806
+      "iterations": 100,
+      "meanMs": 0.021084160000000338,
+      "p99Ms": 0.06066600000002609
     },
     "100k / alias + enrichment": {
-      "iterations": 5000,
-      "meanMs": 0.49482998339999995,
-      "p99Ms": 0.5613433400000031
+      "iterations": 100,
+      "meanMs": 0.6206533300000001,
+      "p99Ms": 1.4076670000000036
     },
     "100k / bundle creation with aliases": {
-      "iterations": 5000,
-      "meanMs": 6.4291953500000005,
-      "p99Ms": 6.839172500000022
+      "iterations": 100,
+      "meanMs": 7.352455000000001,
+      "p99Ms": 13.127166999999986
     },
     "100k / utility: getAliasValues (single id)": {
-      "iterations": 5000,
-      "meanMs": 0.00006903319999983069,
-      "p99Ms": 0.00029417999990982935
+      "iterations": 100,
+      "meanMs": 0.0006612500000005638,
+      "p99Ms": 0.010749999999916326
     },
     "100k / utility: enrichItems": {
-      "iterations": 5000,
-      "meanMs": 0.006478741800000716,
-      "p99Ms": 0.007666679999965708
+      "iterations": 100,
+      "meanMs": 0.009459999999999127,
+      "p99Ms": 0.024167000000034022
     },
     "micro / intersectSorted / 50k vs 50k (50% overlap)": {
-      "iterations": 5000,
-      "meanMs": 0.04652280820000015,
-      "p99Ms": 0.04914917999994941
+      "iterations": 100,
+      "meanMs": 0.0486587499999996,
+      "p99Ms": 0.06041699999991579
     },
     "micro / intersectSorted / 50k vs 50k (1% overlap)": {
-      "iterations": 5000,
-      "meanMs": 0.03768436660000007,
-      "p99Ms": 0.04134915999995428
+      "iterations": 100,
+      "meanMs": 0.0404033400000003,
+      "p99Ms": 0.049165999999786436
     },
     "micro / intersectSorted / skewed (100 vs 100k)": {
-      "iterations": 5000,
-      "meanMs": 0.001898275000001013,
-      "p99Ms": 0.0038474999999743888
+      "iterations": 100,
+      "meanMs": 0.005076669999998558,
+      "p99Ms": 0.012333000000126049
     },
     "micro / mergeUnionSorted / 8 × 5k": {
-      "iterations": 5000,
-      "meanMs": 0.15990391660000022,
-      "p99Ms": 0.21375915999989956
+      "iterations": 100,
+      "meanMs": 0.17767417000000024,
+      "p99Ms": 0.6428339999999935
     },
     "micro / filterIndicesByRange / 100k × 2 fields": {
-      "iterations": 5000,
-      "meanMs": 0.9565114749999993,
-      "p99Ms": 0.9691075000001002
+      "iterations": 100,
+      "meanMs": 0.91673,
+      "p99Ms": 1.147375000000011
     },
     "100k / multi-value IN (8 customers)": {
-      "iterations": 5000,
-      "meanMs": 1.2200975082000005,
-      "p99Ms": 1.268693340000027
+      "iterations": 100,
+      "meanMs": 1.34471,
+      "p99Ms": 1.7256250000000364
     },
     "100k / facet counts only (broad equal)": {
-      "iterations": 5000,
-      "meanMs": 1.355115925000001,
-      "p99Ms": 1.4592849999999453
+      "iterations": 100,
+      "meanMs": 1.4191841699999985,
+      "p99Ms": 2.1643750000000637
     },
     "100k / ranges only (no equal)": {
-      "iterations": 5000,
-      "meanMs": 0.9565340250000008,
-      "p99Ms": 0.9729866600000241
+      "iterations": 100,
+      "meanMs": 0.9191358300000002,
+      "p99Ms": 1.2073750000001837
     },
     "100k / serialize toJSON (v3.1)": {
-      "iterations": 5000,
-      "meanMs": 15.051238933399997,
-      "p99Ms": 15.433649180000065
+      "iterations": 84,
+      "meanMs": 14.446875488095237,
+      "p99Ms": 17.88700000000017
     },
     "100k / load (v3.1 binary path)": {
-      "iterations": 5000,
-      "meanMs": 1.582242274999997,
-      "p99Ms": 1.64814916000003
+      "iterations": 100,
+      "meanMs": 1.7669087500000022,
+      "p99Ms": 3.0245420000001104
     },
     "100k / load (v3.0 legacy path, binary fields stripped)": {
-      "iterations": 5000,
-      "meanMs": 0.20142431679999573,
-      "p99Ms": 0.25398581999994346
+      "iterations": 100,
+      "meanMs": 0.17328457999999955,
+      "p99Ms": 0.6680419999997866
     },
     "100k / load + first range query (v3.1 binary)": {
-      "iterations": 5000,
-      "meanMs": 1.9498615167999989,
-      "p99Ms": 2.015883320000139
+      "iterations": 100,
+      "meanMs": 1.9708133399999996,
+      "p99Ms": 2.8132919999998194
     },
     "100k / load + first range query (v3.0 legacy)": {
-      "iterations": 5000,
-      "meanMs": 13.057106166599999,
-      "p99Ms": 13.849677500000107
+      "iterations": 87,
+      "meanMs": 13.832559379310341,
+      "p99Ms": 15.333916000000045
     },
     "100k / serialize binary (v4)": {
-      "iterations": 5000,
-      "meanMs": 80.054683675,
-      "p99Ms": 81.20590084000025
+      "iterations": 14,
+      "meanMs": 89.30674700000002,
+      "p99Ms": 99.21416700000009
     },
     "100k / loadBinary (v4)": {
-      "iterations": 5000,
-      "meanMs": 15.894682816600008,
-      "p99Ms": 16.210274160001426
+      "iterations": 100,
+      "meanMs": 0.3624895800000013,
+      "p99Ms": 0.920708000000559
     },
     "100k / loadBinary + first range query (v4)": {
-      "iterations": 5000,
-      "meanMs": 16.248153241600004,
-      "p99Ms": 16.586674160000403
+      "iterations": 70,
+      "meanMs": 17.28205298571429,
+      "p99Ms": 29.350666999999703
     },
     "100k / wire-form JSON.parse + load (v3.1)": {
-      "iterations": 5000,
-      "meanMs": 67.46503541680002,
-      "p99Ms": 68.46403000000166
+      "iterations": 16,
+      "meanMs": 77.38053650000006,
+      "p99Ms": 84.5346669999999
     },
     "100k / wire-form JSON.parse + load + first range query (v3.1)": {
-      "iterations": 5000,
-      "meanMs": 68.43552216679998,
-      "p99Ms": 76.66250250000041
+      "iterations": 16,
+      "meanMs": 78.19016668749998,
+      "p99Ms": 88.34041699999943
     },
     "100k / wire-size: JSON.stringify(v3.1)": {
-      "iterations": 5000,
-      "meanMs": 42.05470669999998,
-      "p99Ms": 44.208001660001464
+      "iterations": 27,
+      "meanMs": 44.860763888888904,
+      "p99Ms": 47.73570800000016
     },
     "100k / wire-size: serialize binary (v4)": {
-      "iterations": 5000,
-      "meanMs": 79.59596760839997,
-      "p99Ms": 82.78052916000132
+      "iterations": 14,
+      "meanMs": 86.44114285714295,
+      "p99Ms": 96.53108400000019
     }
   }
 }

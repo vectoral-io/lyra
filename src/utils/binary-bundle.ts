@@ -40,6 +40,7 @@ import { deltaVarintDecodeBytes, deltaVarintEncodeBytes } from './codec';
 import {
   type Column,
   type ColumnEncoding,
+  type ColumnLoader,
   ColumnarItemStore,
   encodeColumns,
 } from './item-store';
@@ -91,13 +92,17 @@ interface V4Header {
   };
 }
 
+/**
+ * Columnar items are represented at the V4 boundary as a `loadColumn` accessor
+ * (decodes a column on demand) plus field names and row count — the same shape
+ * whether we're about to encode or have just decoded. This keeps
+ * `encodeV4(decodeV4(bytes))` symmetric and lets both sides stay lazy.
+ */
 export type V4ItemsInput<T extends Record<string, unknown>> =
   | { kind: 'rows'; rows: T[] }
-  | { kind: 'columnar'; columns: Record<string, Column>; fieldNames: string[]; length: number };
+  | { kind: 'columnar'; loadColumn: ColumnLoader; fieldNames: string[]; length: number };
 
-export type V4ItemsOutput<T extends Record<string, unknown>> =
-  | { kind: 'rows'; rows: T[] }
-  | { kind: 'columnar'; columns: Record<string, Column>; fieldNames: string[]; length: number };
+export type V4ItemsOutput<T extends Record<string, unknown>> = V4ItemsInput<T>;
 
 export interface V4Payload<T extends Record<string, unknown>> {
   manifest: LyraManifest;
@@ -147,8 +152,8 @@ export function encodeV4<T extends Record<string, unknown>>(
   }
   else {
     const columnar = payload.items.kind === 'columnar'
-      ? { columns: payload.items.columns, fieldNames: payload.items.fieldNames, length: payload.items.length }
-      : { ...encodeColumns(payload.items.rows), length: payload.items.rows.length };
+      ? payload.items
+      : rowsToColumnarSource(payload.items.rows);
     itemsSlot = writeColumnarItems(body, columnar);
   }
 
@@ -289,10 +294,12 @@ function decodeItems<T extends Record<string, unknown>>(
     return { kind: 'rows', rows };
   }
   if (slot.encoding === 'columnar') {
-    const columns = readColumnarItems(bytes, bodyStart, slot);
+    // Lazy: hand back a loader that decodes a single column on first touch.
+    // The buffer is retained by the closure; only columns actually read get
+    // materialized into `Column`s.
     return {
       kind: 'columnar',
-      columns,
+      loadColumn: makeColumnLoader(bytes, bodyStart, slot),
       fieldNames: slot.fieldNames,
       length: slot.length,
     };
@@ -300,16 +307,30 @@ function decodeItems<T extends Record<string, unknown>>(
   throw new Error(`Invalid v4 bundle: unsupported items encoding "${(slot as { encoding: string }).encoding}"`);
 }
 
+/**
+ * Build a loader that decodes one column at a time from the encoded buffer,
+ * closing over the buffer and the columnar slot table. Columns are decoded
+ * only when requested (memoization is the caller's responsibility).
+ */
+function makeColumnLoader(bytes: Uint8Array, bodyStart: number, slot: ItemsSlotColumnar): ColumnLoader {
+  return (field: string): Column => {
+    const fieldSlot = slot.fields[field];
+    if (!fieldSlot) {
+      throw new Error(`Invalid v4 bundle: columnar items missing field "${field}"`);
+    }
+    return readColumn(bytes, bodyStart, fieldSlot);
+  };
+}
+
 // ---- Items: columnar path ----
 
 function writeColumnarItems(
   body: BinaryWriter,
-  payload: { columns: Record<string, Column>; fieldNames: string[]; length: number },
+  payload: { loadColumn: ColumnLoader; fieldNames: string[]; length: number },
 ): ItemsSlotColumnar {
   const fields: Record<string, ColumnSlot> = {};
   for (const field of payload.fieldNames) {
-    const col = payload.columns[field];
-    fields[field] = writeColumn(body, col);
+    fields[field] = writeColumn(body, payload.loadColumn(field));
   }
   return {
     encoding: 'columnar',
@@ -317,6 +338,17 @@ function writeColumnarItems(
     fieldNames: payload.fieldNames,
     fields,
   };
+}
+
+/**
+ * Encode rows into columns once, then expose them as a `loadColumn` accessor so
+ * the columnar write path is uniform regardless of input shape.
+ */
+function rowsToColumnarSource<T extends Record<string, unknown>>(
+  rows: T[],
+): { loadColumn: ColumnLoader; fieldNames: string[]; length: number } {
+  const { columns, fieldNames } = encodeColumns(rows);
+  return { loadColumn: (field) => columns[field], fieldNames, length: rows.length };
 }
 
 function writeColumn(body: BinaryWriter, col: Column): ColumnSlot {
@@ -369,22 +401,6 @@ function writeColumn(body: BinaryWriter, col: Column): ColumnSlot {
   }
 
   return slot;
-}
-
-function readColumnarItems(
-  bytes: Uint8Array,
-  bodyStart: number,
-  slot: ItemsSlotColumnar,
-): Record<string, Column> {
-  const out: Record<string, Column> = {};
-  for (const field of slot.fieldNames) {
-    const fieldSlot = slot.fields[field];
-    if (!fieldSlot) {
-      throw new Error(`Invalid v4 bundle: columnar items missing field "${field}"`);
-    }
-    out[field] = readColumn(bytes, bodyStart, fieldSlot);
-  }
-  return out;
 }
 
 function readColumn(bytes: Uint8Array, bodyStart: number, slot: ColumnSlot): Column {
@@ -484,7 +500,9 @@ function decodeStringTable(offsetsBytes: Uint8Array, dictBytes: Uint8Array, coun
 }
 
 function materializeColumnsForSerialize<T extends Record<string, unknown>>(
-  items: { columns: Record<string, Column>; fieldNames: string[]; length: number },
+  items: { loadColumn: ColumnLoader; fieldNames: string[]; length: number },
 ): T[] {
-  return new ColumnarItemStore<T>(items.columns, items.fieldNames, items.length).materializeAll();
+  const columns: Record<string, Column> = {};
+  for (const field of items.fieldNames) columns[field] = items.loadColumn(field);
+  return new ColumnarItemStore<T>(columns, items.fieldNames, items.length).materializeAll();
 }
