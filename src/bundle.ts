@@ -592,9 +592,12 @@ export class LyraBundle<T extends Record<string, unknown>> {
       }
     }
 
-    const facetIndex: InMemoryFacetIndex = {};
+    // Null-prototype maps: a facet field or value named "__proto__" must land
+    // as an own key, not mutate the map's prototype — which would corrupt
+    // query-time lookups and slip past the capability allow-list checked above.
+    const facetIndex: InMemoryFacetIndex = Object.create(null);
     for (const field of manifest.capabilities.facets) {
-      const out: Record<string, Uint32Array> = {};
+      const out: Record<string, Uint32Array> = Object.create(null);
       const binByValue = rawFacetBin?.[field];
       if (binByValue) {
         for (const valueKey in binByValue) {
@@ -612,7 +615,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
       facetIndex[field] = out;
     }
 
-    const nullIndex: InMemoryNullIndex = {};
+    const nullIndex: InMemoryNullIndex = Object.create(null);
     if (rawNullBin) {
       for (const field in rawNullBin) {
         nullIndex[field] = deltaVarintDecode(rawNullBin[field]);
@@ -628,7 +631,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
     // the lazy getter rebuild from items on first range query (legacy path).
     let preloadedRangeColumns: RangeColumns | null = null;
     if (raw.rangeColumns) {
-      preloadedRangeColumns = {};
+      preloadedRangeColumns = Object.create(null) as RangeColumns;
       for (const field in raw.rangeColumns) {
         const block = raw.rangeColumns[field];
         if (block.encoding !== 'b64f64') {
