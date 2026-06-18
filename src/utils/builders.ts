@@ -8,6 +8,7 @@ import type {
   LyraManifest,
   RangeColumns,
 } from '../types';
+import { encodeFacetKey } from '../query/facet-key';
 import type { ItemStore } from './item-store';
 
 /**
@@ -194,7 +195,7 @@ export function buildFacetIndex<T extends Record<string, unknown>>(
       const byValue = transient[field];
       if (Array.isArray(raw)) {
         for (const value of raw) {
-          const valueKey = String(value);
+          const valueKey = encodeFacetKey(value);
           let postings = byValue[valueKey];
           if (!postings) {
             postings = [];
@@ -204,7 +205,7 @@ export function buildFacetIndex<T extends Record<string, unknown>>(
         }
       }
       else {
-        const valueKey = String(raw);
+        const valueKey = encodeFacetKey(raw);
         let postings = byValue[valueKey];
         if (!postings) {
           postings = [];

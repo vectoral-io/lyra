@@ -4,7 +4,6 @@ import type {
   FacetCounts,
   FacetPostingLists,
   FacetPostingListsBin,
-  FieldType,
   InMemoryFacetIndex,
   InMemoryNullIndex,
   LyraBundleJSON,
@@ -22,6 +21,7 @@ import type {
 import { enrichItems, getAliasValues } from './aliases';
 import { filterByExclusions, filterByNullChecks, filterByRanges } from './query/filters';
 import { normalizeQuery, resolveAliases } from './query/normalize';
+import { decodeFacetKey, encodeFacetKey } from './query/facet-key';
 import * as arrayOps from './utils/array-operations';
 import type { SortedSource } from './utils/array-operations';
 import {
@@ -376,7 +376,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
     const rawCounts = result.facets?.[field] ?? {};
     const values: Array<{ value: string | number | boolean; count: number }> = [];
     for (const [key, count] of Object.entries(rawCounts)) {
-      values.push({ value: parseFacetKey(fieldDef.type, key), count });
+      values.push({ value: decodeFacetKey(fieldDef.type, key), count });
     }
 
     values.sort((first, second) => {
@@ -748,14 +748,14 @@ export class LyraBundle<T extends Record<string, unknown>> {
       if (values.length === 0) return null;
 
       if (values.length === 1) {
-        const postings = byValue[String(values[0])];
+        const postings = byValue[encodeFacetKey(values[0])];
         if (!postings || postings.length === 0) return null;
         return { buf: postings, len: postings.length };
       }
 
       const postingsArrays: SortedSource[] = [];
       for (const candidateValue of values) {
-        const postings = byValue[String(candidateValue)];
+        const postings = byValue[encodeFacetKey(candidateValue)];
         if (postings && postings.length > 0) postingsArrays.push(postings);
       }
       if (postingsArrays.length === 0) return null;
@@ -782,7 +782,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
       if (values.length === 0) return null;
 
       if (values.length === 1) {
-        const postings = byValue[String(values[0])];
+        const postings = byValue[encodeFacetKey(values[0])];
         if (!postings || postings.length === 0) return null;
         entries.push({ postings, size: postings.length });
         continue;
@@ -790,7 +790,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
 
       const postingsArrays: SortedSource[] = [];
       for (const candidateValue of values) {
-        const postings = byValue[String(candidateValue)];
+        const postings = byValue[encodeFacetKey(candidateValue)];
         if (postings && postings.length > 0) postingsArrays.push(postings);
       }
       if (postingsArrays.length === 0) return null;
@@ -846,12 +846,12 @@ export class LyraBundle<T extends Record<string, unknown>> {
         const bucket = counts[field];
         if (Array.isArray(raw)) {
           for (const value of raw) {
-            const key = String(value);
+            const key = encodeFacetKey(value);
             bucket[key] = (bucket[key] ?? 0) + 1;
           }
         }
         else {
-          const key = String(raw);
+          const key = encodeFacetKey(raw);
           bucket[key] = (bucket[key] ?? 0) + 1;
         }
       }
@@ -911,23 +911,4 @@ function numberArrayToUint32(source: number[]): Uint32Array {
   return out;
 }
 
-/**
- * Parse a facet key string back to its typed value based on field type.
- * Used by `getFacetSummary` to convert string keys back to typed values.
- * @internal
- */
-function parseFacetKey(fieldType: FieldType, key: string): string | number | boolean {
-  switch (fieldType) {
-    case 'number':
-      return Number(key);
-    case 'boolean':
-      return key === 'true';
-    case 'date': {
-      const parsed = Date.parse(key);
-      return Number.isNaN(parsed) ? key : parsed;
-    }
-    default:
-      return key;
-  }
-}
 
