@@ -1,6 +1,6 @@
 # Migration Guide: Lyra v1 to v2
 
-This guide helps you migrate from Lyra v1 to v2. Lyra v2 introduces breaking changes to the query API and adds new features for dimension-aware aliases and explicit null handling.
+Lyra v2 reworks the query API around explicit operators and adds dimension-aware aliases and explicit null handling. The breaking changes are all in the query DSL.
 
 ## Breaking Changes Summary
 

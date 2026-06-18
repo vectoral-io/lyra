@@ -21,7 +21,6 @@ export type {
 export {
   buildQuerySchema,
   type JsonSchema,
-  type QuerySchemaOptions,
 } from './schema';
 
 // OpenAI Tool Adapter

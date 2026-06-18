@@ -14,21 +14,17 @@ A bundle in memory can be serialized to either format via `serialize()` / `seria
 
 # JSON Format (v3.x)
 
-This section describes the JSON format for Lyra bundles, enabling non-TypeScript consumers to understand, validate, and integrate with Lyra bundle files.
+The on-the-wire JSON format, for non-TypeScript consumers that need to read, validate, or produce bundles.
 
 ## Overview
 
-A Lyra bundle is a self-contained JSON document containing:
-- A **manifest** describing the dataset schema and capabilities
-- An **items** array containing the data records
-- A **facetIndex** with precomputed posting lists for facet queries
-- A **nullIndex** with posting lists tracking null/undefined indexable fields
-- v3.1 additions (optional, additive): **rangeColumns**, **facetIndexBin**, **nullIndexBin**
+A bundle is one self-contained JSON document. The manifest fully describes the schema and capabilities, so a bundle is portable (loads anywhere JSON parses) and deterministic (same inputs, same bytes). Contents:
 
-Bundles are designed to be:
-- **Self-describing**: The manifest fully describes the schema and query capabilities
-- **Portable**: Can be loaded and queried in any environment that can parse JSON
-- **Deterministic**: The same inputs always produce the same bundle structure
+- **manifest** — schema and capabilities
+- **items** — the data records
+- **facetIndex** — precomputed posting lists for facet queries
+- **nullIndex** — posting lists tracking null/undefined indexable fields
+- v3.1 additions (optional, additive): **rangeColumns**, **facetIndexBin**, **nullIndexBin**
 
 ## Top-Level Structure
 

@@ -6,6 +6,9 @@ out
 dist
 *.tgz
 
+# stray compiled declarations in the source tree (build emits to dist/)
+src/**/*.d.ts
+
 # code coverage
 coverage
 *.lcov

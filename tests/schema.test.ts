@@ -364,12 +364,6 @@ describe('buildQuerySchema', () => {
     expect(rangeProperties.excludedRange).toBeUndefined();
   });
 
-  // Note: Array query format (facetMode/rangeMode) was removed in v2
-  // These tests are skipped as they test deprecated functionality
-  it.skip('should support array query format when includeArrayQueryFormat is true', () => {
-    // Array query format removed in v2
-  });
-
   it('should not include facetMode/rangeMode (removed in v2)', () => {
     const schema = buildQuerySchema(testManifest);
     const properties = schema.properties as Record<string, unknown>;
@@ -385,30 +379,6 @@ describe('buildQuerySchema', () => {
     const ranges = properties.ranges as Record<string, unknown>;
     expect(ranges.type).toBe('object');
     expect(ranges.anyOf).toBeUndefined();
-  });
-
-  it.skip('should include array schema for facets when includeArrayQueryFormat is true', () => {
-    // Array query format removed in v2
-    const schema = buildQuerySchema(testManifest, { includeArrayQueryFormat: true });
-    const properties = schema.properties as Record<string, unknown>;
-    const equal = properties.equal as Record<string, unknown>;
-    const anyOf = facets.anyOf as Array<Record<string, unknown>>;
-
-    expect(anyOf).toHaveLength(2);
-
-    // First option: single object
-    const objectOption = anyOf[0];
-    expect(objectOption.type).toBe('object');
-    expect(objectOption.properties).toBeDefined();
-
-    // Second option: array of objects
-    const arrayOption = anyOf[1];
-    expect(arrayOption.type).toBe('array');
-    expect(arrayOption.items).toBeDefined();
-
-    const arrayItems = arrayOption.items as Record<string, unknown>;
-    expect(arrayItems.type).toBe('object');
-    expect(arrayItems.properties).toBeDefined();
   });
 });
 
