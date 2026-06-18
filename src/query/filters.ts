@@ -4,6 +4,19 @@ import * as arrayOps from '../utils/array-operations';
 import type { ItemStore } from '../utils/item-store';
 
 /**
+ * No-op filter passthrough: copy `indices[0..len)` into `target` unless they're
+ * already the same buffer. Shared by the empty-filter early return in each
+ * filter stage. Returns `len`.
+ * @internal
+ */
+function copyThrough(indices: SortedSource, len: number, target: Uint32Array): number {
+  if (target !== indices) {
+    for (let i = 0; i < len; i++) target[i] = indices[i];
+  }
+  return len;
+}
+
+/**
  * Filter `indices[0..indicesLen)` by null/not-null constraints, writing kept
  * indices into `target`. Returns number of values written.
  *
@@ -27,10 +40,7 @@ export function filterByNullChecks<T extends Record<string, unknown>>(
   target: Uint32Array,
 ): number {
   if (nullChecks.isNull.length === 0 && nullChecks.isNotNull.length === 0) {
-    if (target !== indices) {
-      for (let i = 0; i < indicesLen; i++) target[i] = indices[i];
-    }
-    return indicesLen;
+    return copyThrough(indices, indicesLen, target);
   }
 
   const allIndexed =
@@ -114,10 +124,7 @@ export function filterByExclusions<T extends Record<string, unknown>>(
 ): number {
   const excludeFields = Object.keys(excludes);
   if (excludeFields.length === 0) {
-    if (target !== indices) {
-      for (let i = 0; i < indicesLen; i++) target[i] = indices[i];
-    }
-    return indicesLen;
+    return copyThrough(indices, indicesLen, target);
   }
 
   // Hoist value-array shape outside the inner loop.
@@ -162,10 +169,7 @@ export function filterByRanges(
 ): number {
   const rangeFields = Object.keys(ranges);
   if (rangeFields.length === 0) {
-    if (target !== indices) {
-      for (let i = 0; i < indicesLen; i++) target[i] = indices[i];
-    }
-    return indicesLen;
+    return copyThrough(indices, indicesLen, target);
   }
 
   // Hoist (column, min, max) tuples so the inner loop has no per-row Object lookup cost.

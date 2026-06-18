@@ -342,13 +342,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
     return {
       items: resultItems,
       total,
-      applied: {
-        equal: query.equal,
-        notEqual: query.notEqual,
-        ranges: query.ranges,
-        isNull: query.isNull,
-        isNotNull: query.isNotNull,
-      },
+      applied: this.appliedView(query),
       facets,
       snapshot: this.snapshot(),
     };
@@ -724,6 +718,20 @@ export class LyraBundle<T extends Record<string, unknown>> {
   // ---- Private helpers ----
 
   /**
+   * The filter view echoed back on a result. (Reflects the requested filters.)
+   * @internal
+   */
+  private appliedView(query: LyraQuery): LyraResult<T>['applied'] {
+    return {
+      equal: query.equal,
+      notEqual: query.notEqual,
+      ranges: query.ranges,
+      isNull: query.isNull,
+      isNotNull: query.isNotNull,
+    };
+  }
+
+  /**
    * Build an empty result preserving the applied filter view.
    * @internal
    */
@@ -731,13 +739,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
     return {
       items: [],
       total: 0,
-      applied: {
-        equal: query.equal,
-        notEqual: query.notEqual,
-        ranges: query.ranges,
-        isNull: query.isNull,
-        isNotNull: query.isNotNull,
-      },
+      applied: this.appliedView(query),
       facets: undefined,
       snapshot: this.snapshot(),
     };
