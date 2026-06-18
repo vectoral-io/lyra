@@ -7,12 +7,12 @@
 </p>
 
 <p align="center">
-  A lightweight engine for building precomputed indexes from structured data.
+  Precomputed query indexes for structured data. Built once, queried anywhere.
 </p>
 
 ---
 
-Build an index from your data offline, ship it as JSON, and run fast deterministic queries anywhere — browser, server, edge, or as a tool for an LLM agent.
+Build an index from your data offline, ship it as JSON, and run fast deterministic queries anywhere: browser, server, edge, or as a tool for an LLM agent.
 
 Not a vector DB. Not a warehouse. A **portable, manifest-driven query layer** between raw data and whoever needs to filter it.
 
@@ -34,7 +34,7 @@ const bundle = await createBundle(tickets, {
   ranges: ['createdAt'],
 });
 
-// 2. Persist as JSON (portable, debuggable) — or as a binary container.
+// 2. Persist as JSON (portable, debuggable), or as a binary container.
 const json = JSON.stringify(bundle.toJSON());
 const bytes = bundle.serialize('binary');     // Uint8Array, ~50× faster cold-start
 
@@ -61,9 +61,9 @@ Lyra ships two interoperable formats. Both round-trip identical query results.
 | **JSON** (v3.x) | `bundle.toJSON()` / `bundle.serialize()` | `LyraBundle.load(json)` | Debugging, portability, transport over plain HTTP/JSON pipelines |
 | **Binary** (v4.x) | `bundle.serialize('binary')` → `Uint8Array` | `LyraBundle.loadBinary(bytes)` or `LyraBundle.load(bytes)` (autodetect) | Production hot path: smaller wire size + drastically faster cold-start |
 
-The binary container (v4.1) holds a single header JSON, then aligned blocks for items (columnar — dictionary-encoded strings, raw `f64` numbers, packed booleans), facet posting lists (delta + varint), null posting lists, and range columns (zero-copy `Float64Array` views when alignment permits).
+The binary container (v4.1) is a JSON header followed by aligned data blocks: items stored columnar (dictionary-encoded strings, raw `f64` numbers, packed booleans), facet and null posting lists (delta + varint), and range columns. Range columns read back as zero-copy `Float64Array` views when alignment permits. No copy, no parse.
 
-**Headline measurements** on a 300k-item real-world fixture (deeply-nested record shape — strings, numbers, arrays, and a per-row `Record<string, …>` step map):
+**Measured on a 300k-item real-world fixture** (deeply-nested record shape: strings, numbers, arrays, and a per-row `Record<string, …>` step map):
 
 | | v3.1 JSON | v4.1 binary |
 |---|---|---|
@@ -129,6 +129,8 @@ const enriched = bundle.enrichItems(result.items, ['zone_name']);
 
 ## LLM agent tool
 
+Hand a bundle to an agent as a tool. The schema generates itself from the manifest, so it can't drift from what the bundle actually supports.
+
 ```ts
 import { buildOpenAiTool } from '@vectoral/lyra';
 
@@ -137,12 +139,14 @@ const tool = buildOpenAiTool(bundle.describe(), {
   description: 'Query support tickets',
 });
 
-// Pass `tool` to your agent framework; execute queries via bundle.query(args).
+// `tool` is a ready-to-use OpenAI function definition.
 ```
 
-The schema is derived from the manifest's `capabilities`, so it always matches what the bundle actually supports. See [`examples/agent-tool/`](./examples/agent-tool/).
+Pass `tool` to your agent framework and run the model's calls through `bundle.query(args)`. See [`examples/agent-tool/`](./examples/agent-tool/) for a full loop.
 
 ## Facet summaries (for dashboards)
+
+Distinct values and counts for one field, under whatever filters you pass. The data behind a dropdown or a drilldown.
 
 ```ts
 bundle.getFacetSummary('status', { equal: { customer: 'ACME' } });

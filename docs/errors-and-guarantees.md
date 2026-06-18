@@ -1,6 +1,6 @@
 # Errors & guarantees
 
-Lyra is **fail-closed**: at query time, bad input means empty results, never an exception. Build and load validate up front and throw on structurally broken bundles. The split is deliberate — you find config mistakes when you build, and a typo in a live query degrades to "no matches" instead of crashing a request.
+Lyra is **fail-closed**: at query time, bad input means empty results, never an exception. Build and load validate up front and throw on structurally broken bundles. The split is deliberate. You find config mistakes when you build, and a typo in a live query degrades to "no matches" instead of crashing a request.
 
 ## What throws
 
@@ -12,7 +12,7 @@ Lyra is **fail-closed**: at query time, bad input means empty results, never an 
 | `type` not `string`/`number`/`boolean`/`date` | `Invalid field type "foo" for field "status". …` |
 | Range field (simple config) holds a value that's neither number nor parseable date | `Cannot infer range type for field "createdAt". …` |
 
-A configured field that exists on no item doesn't throw — it warns once and is otherwise ignored (present in the manifest, no indexed values).
+A configured field that exists on no item doesn't throw. It warns once and is otherwise ignored (present in the manifest, no indexed values).
 
 ### `LyraBundle.load` / `loadBinary`
 
@@ -24,7 +24,7 @@ Throws on a bundle that can't be trusted:
 - `facetIndex` keys a field that isn't in `capabilities.facets` → `… facetIndex contains field "priority" that is not in capabilities.facets`
 - Binary buffer with a bad `LYRA4` magic, oversized header, or out-of-bounds block offsets
 
-A facet declared in `capabilities` but absent from `facetIndex` is fine — it initializes empty, and queries on it return nothing. That's the valid state for a field where every value is null. The [bundle spec](./bundle-json-spec.md#error-cases) lists every binary-format error.
+A facet declared in `capabilities` but absent from `facetIndex` is fine: it initializes empty, and queries on it return nothing. That's the valid state for a field where every value is null. The [bundle spec](./bundle-json-spec.md#error-cases) lists every binary-format error.
 
 ## What fails closed (query)
 
@@ -32,14 +32,14 @@ A facet declared in `capabilities` but absent from `facetIndex` is fine — it i
 
 | Input | Result |
 |---|---|
-| Unknown `equal` / `ranges` field | `total: 0`, `items: []` — the unknown field stays in `applied` |
+| Unknown `equal` / `ranges` field | `total: 0`, `items: []`; the unknown field stays in `applied` |
 | Negative `offset` | clamped to `0` |
 | Negative `limit` | `0` items returned; `total` still counts all matches |
 | `limit` larger than the match count | clamped to what's available |
 
 Unknown fields failing closed is the point: a mistyped facet name returns nothing rather than silently dropping the filter and over-returning. Check `total === 0` to catch it.
 
-Bad *types* in a query (an object where a scalar belongs) are out of scope — pass structurally valid `LyraQuery` shapes; TypeScript covers this.
+Bad *types* in a query (an object where a scalar belongs) are out of scope. Pass structurally valid `LyraQuery` shapes; TypeScript covers this.
 
 ## Guarantees
 

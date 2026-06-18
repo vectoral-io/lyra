@@ -5,8 +5,8 @@
 
 Lyra bundles ship in two interoperable formats:
 
-- **JSON** (sections below) — portable, human-readable, debuggable. Stable indefinitely.
-- **Binary container** (see [Binary Bundle Format (v4)](#binary-bundle-format-v4)) — compact, zero-copy hydrate for typed data.
+- **JSON** (sections below): portable, human-readable, debuggable. Stable indefinitely.
+- **Binary container** (see [Binary Bundle Format (v4)](#binary-bundle-format-v4)): compact, zero-copy hydrate for typed data.
 
 A bundle in memory can be serialized to either format via `serialize()` / `serialize('binary')`. Loaders accept either via `LyraBundle.load(...)`, which autodetects on input type (`Uint8Array` → binary, plain object → JSON). The formats are functionally equivalent.
 
@@ -20,10 +20,10 @@ The on-the-wire JSON format, for non-TypeScript consumers that need to read, val
 
 A bundle is one self-contained JSON document. The manifest fully describes the schema and capabilities, so a bundle is portable (loads anywhere JSON parses) and deterministic (same inputs, same bytes). Contents:
 
-- **manifest** — schema and capabilities
-- **items** — the data records
-- **facetIndex** — precomputed posting lists for facet queries
-- **nullIndex** — posting lists tracking null/undefined indexable fields
+- **manifest**: schema and capabilities
+- **items**: the data records
+- **facetIndex**: precomputed posting lists for facet queries
+- **nullIndex**: posting lists tracking null/undefined indexable fields
 - v3.1 additions (optional, additive): **rangeColumns**, **facetIndexBin**, **nullIndexBin**
 
 ## Top-Level Structure
@@ -534,4 +534,4 @@ Invalid bundle version: "<v>". Expected version starting with "3." or "4."
 
 - [Main README](../README.md)
 - [TypeScript Types](../src/types.ts)
-- [`src/utils/binary-bundle.ts`](../src/utils/binary-bundle.ts) — reference encoder/decoder.
+- [`src/utils/binary-bundle.ts`](../src/utils/binary-bundle.ts): reference encoder/decoder.

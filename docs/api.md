@@ -1,12 +1,12 @@
 # API Reference
 
-Everything Lyra exports. Types are abbreviated for readability — the package ships full `.d.ts`.
+Everything Lyra exports. Types are abbreviated for readability; the package ships full `.d.ts`.
 
-- [`createBundle`](#createbundle) — build a bundle
-- [`LyraBundle`](#lyrabundle) — query / serialize / load
-- [Query](#query) — `LyraQuery`, `LyraResult`
-- [Config](#config) — `SimpleBundleConfig`, `CreateBundleConfig`
-- [Field types](#field-types) — kinds, types, manifest
+- [`createBundle`](#createbundle): build a bundle
+- [`LyraBundle`](#lyrabundle): query, serialize, load
+- [Query](#query): `LyraQuery`, `LyraResult`
+- [Config](#config): `SimpleBundleConfig`, `CreateBundleConfig`
+- [Field types](#field-types): kinds, types, manifest
 
 ## `createBundle`
 
@@ -47,7 +47,7 @@ result.facets;  // counts per facet value (only with includeFacetCounts)
 
 ### `getFacetSummary(field, options?)`
 
-Distinct values and counts for one facet field — handy for dashboard dropdowns. Pass `equal` / `ranges` filters to count under the current view. Values come back sorted (numbers ascending, `false` before `true`, strings lexicographic); `null`/`undefined` are excluded.
+Distinct values and counts for one facet field, handy for dashboard dropdowns. Pass `equal` / `ranges` filters to count under the current view. Values come back sorted (numbers ascending, `false` before `true`, strings lexicographic); `null`/`undefined` are excluded.
 
 ```ts
 bundle.getFacetSummary('status');
@@ -77,18 +77,18 @@ enriched[0].zone_name; // ['Zone A']
 
 ### `describe(): LyraManifest`
 
-The [manifest](#lyramanifest) — fields and capabilities. Feed it to `buildQuerySchema` / `buildOpenAiTool` (see [agents](./agents.md)).
+The [manifest](#lyramanifest): fields and capabilities. Feed it to `buildQuerySchema` / `buildOpenAiTool` (see [agents](./agents.md)).
 
 ### `snapshot(): LyraSnapshotInfo`
 
-`{ datasetId, builtAt, indexVersion }` — what data this bundle is and when it was built.
+`{ datasetId, builtAt, indexVersion }`: what data this bundle is, and when it was built.
 
 ### `toJSON()` / `serialize(format?)`
 
 ```ts
-bundle.toJSON();             // LyraBundleJSON — plain object, JSON-safe
+bundle.toJSON();             // LyraBundleJSON, a plain JSON-safe object
 bundle.serialize('json');    // same as toJSON()
-bundle.serialize('binary');  // Uint8Array — v4 container, ~50× faster cold start
+bundle.serialize('binary');  // Uint8Array; v4 container, ~50× faster cold start
 ```
 
 Use JSON for transport you want to read; binary for the production hot path. See the [migration guide](./migration-v4.md).
@@ -101,7 +101,7 @@ Release the index and item store. Idempotent; `describe`/`snapshot`/`isDisposed`
 
 ```ts
 LyraBundle.load<Ticket>(json);   // v3.x JSON object
-LyraBundle.load<Ticket>(bytes);  // Uint8Array — autodetected via the LYRA4 magic
+LyraBundle.load<Ticket>(bytes);  // Uint8Array, autodetected via the LYRA4 magic
 LyraBundle.loadBinary<Ticket>(bytes);
 ```
 
@@ -130,7 +130,7 @@ A few behaviors worth knowing:
 
 - `null` inside `equal`/`notEqual` is normalized to `isNull`/`isNotNull`. `[val, null]` matches `val` OR null.
 - `ranges` bounds are inclusive. For dates, pass epoch ms (`Date.parse(iso)`).
-- `select` only shapes the returned `items` — `total` and facet counts are unaffected. On binary-loaded bundles it skips decoding columns you don't ask for. If you use `enrichAliases`, include the canonical ID fields in `select` or there's nothing to resolve against.
+- `select` only shapes the returned `items`; `total` and facet counts are unaffected. On binary-loaded bundles it skips decoding columns you don't ask for. If you use `enrichAliases`, include the canonical ID fields in `select` or there's nothing to resolve against.
 - `enrichAliases: true` adds every declared alias; pass a `string[]` for specific ones.
 
 ```ts
@@ -160,7 +160,7 @@ interface LyraResult<Item> {
 
 ### `SimpleBundleConfig`
 
-The ergonomic style — list fields by purpose, let Lyra infer types.
+The ergonomic style: list fields by purpose, let Lyra infer types.
 
 ```ts
 interface SimpleBundleConfig<T> {
@@ -171,7 +171,7 @@ interface SimpleBundleConfig<T> {
   meta?:    (keyof T)[];              // schema-visible, not indexed
   aliases?: Record<string, keyof T>;  // aliasName -> canonical field
   inferTypes?: 'none' | 'runtime';    // 'runtime' (default) inspects values
-  autoMeta?: boolean;                 // default true — see below
+  autoMeta?: boolean;                 // default true (see below)
 }
 ```
 
@@ -188,7 +188,7 @@ await createBundle(tickets, {
 
 ### `CreateBundleConfig`
 
-The explicit style — declare every field's `kind` and `type` yourself.
+The explicit style: declare every field's `kind` and `type` yourself.
 
 ```ts
 interface CreateBundleConfig<T> {
@@ -217,17 +217,17 @@ type FieldKind = 'id' | 'facet' | 'range' | 'meta' | 'alias';
 type FieldType = 'string' | 'number' | 'boolean' | 'date';
 ```
 
-- `id` — identifier; stored, not specially indexed.
-- `facet` — indexed for `equal` / IN via posting lists.
-- `range` — eligible for `ranges` filters.
-- `meta` — in the manifest for schema awareness, not indexed.
-- `alias` — resolves to a canonical facet/range field at query time.
+- `id`: identifier; stored, not specially indexed.
+- `facet`: indexed for `equal` / IN via posting lists.
+- `range`: eligible for `ranges` filters.
+- `meta`: in the manifest for schema awareness, not indexed.
+- `alias`: resolves to a canonical facet/range field at query time.
 
 `date` values are epoch ms, or strings parsed with `Date.parse()`. Unparseable values drop out of range results.
 
 ### `LyraManifest`
 
-What `describe()` returns. `capabilities` is the source of truth for what's queryable — only fields listed there can be filtered.
+What `describe()` returns. `capabilities` is the source of truth for what's queryable: only fields listed there can be filtered.
 
 ```ts
 interface LyraManifest {

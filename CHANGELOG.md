@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [5.0.0] - 2026-06-17
 
-Package-version bump only — the bundle format is unchanged (`BUNDLE_VERSION` stays `4.1.0`, v3 JSON and v4 binary load exactly as before). The major bump is solely for removing a dead exported type.
+Package-version bump only. The bundle format is unchanged (`BUNDLE_VERSION` stays `4.1.0`, v3 JSON and v4 binary load exactly as before). The major bump is solely for removing a dead exported type.
 
 ### Removed
 
@@ -15,7 +15,7 @@ Package-version bump only — the bundle format is unchanged (`BUNDLE_VERSION` s
 
 ### Changed
 
-- Docs rewritten for the current API surface (`docs/api.md`, `docs/agents.md`, `docs/errors-and-guarantees.md`) — the prior versions documented removed v1 methods and query syntax.
+- Docs rewritten for the current API surface (`docs/api.md`, `docs/agents.md`, `docs/errors-and-guarantees.md`); the prior versions documented removed v1 methods and query syntax.
 
 ### Internal
 
