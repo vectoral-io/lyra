@@ -1,8 +1,8 @@
 {
   "manifest": {
-    "version": "1.0.0",
+    "version": "4.1.0",
     "datasetId": "tickets-example",
-    "builtAt": "2025-11-24T05:13:31.063Z",
+    "builtAt": "2026-06-18T03:22:01.419Z",
     "fields": [
       {
         "name": "id",
@@ -181,5 +181,52 @@
         3
       ]
     }
+  },
+  "nullIndex": {
+    "customer": [],
+    "priority": [],
+    "status": [],
+    "productArea": [],
+    "createdAt": [],
+    "amount": []
+  },
+  "rangeColumns": {
+    "createdAt": {
+      "encoding": "b64f64",
+      "data": "AADKKQyqeUIAAPTBs6l5QgAAaJRsqnlCAACoE2OpeUIAAHiIs6p5Qg=="
+    },
+    "amount": {
+      "encoding": "b64f64",
+      "data": "AAAAAABwl0AAAAAAAEB/QAAAAAAAQJ9AAAAAAADAckAAAAAAACCcQA=="
+    }
+  },
+  "facetIndexBin": {
+    "customer": {
+      "Acme Corp": "AAED",
+      "Globex Inc": "AgE="
+    },
+    "priority": {
+      "high": "AAIC",
+      "medium": "AQ==",
+      "low": "Aw=="
+    },
+    "status": {
+      "open": "AAIC",
+      "in_progress": "AQ==",
+      "closed": "Aw=="
+    },
+    "productArea": {
+      "analytics": "AAI=",
+      "core": "AQM=",
+      "billing": "Aw=="
+    }
+  },
+  "nullIndexBin": {
+    "customer": "",
+    "priority": "",
+    "status": "",
+    "productArea": "",
+    "createdAt": "",
+    "amount": ""
   }
 }

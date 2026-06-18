@@ -24,7 +24,7 @@ type WorkItem = {
 const config: SimpleBundleConfig<WorkItem> = {
   datasetId: 'work-items-agent-tool',
   id: 'id',
-  facets: ['type', 'priority', 'status', 'productArea', 'customer', 'assignee'],
+  equal: ['type', 'priority', 'status', 'productArea', 'customer', 'assignee'],
   ranges: ['createdAt', 'dueDate', 'eventDate', 'amount', 'attendees'],
   // autoMeta: true, // default: remaining simple fields (title, tags, organizer) become meta
 };

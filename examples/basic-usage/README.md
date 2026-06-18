@@ -61,7 +61,7 @@ const config: CreateBundleConfig<Ticket> = {
 
 Use when you want **quick value** with **minimal boilerplate**.
 
-- Specify fields by purpose (`id`, `facets`, `ranges`, `meta`)
+- Specify fields by purpose (`id`, `equal`, `ranges`, `meta`)
 - Types are inferred automatically from the data
 - `autoMeta: true` (default) automatically adds remaining simple fields as meta
 - Best for prototyping, one-off scripts, or when you want schema discovery
@@ -70,7 +70,7 @@ Use when you want **quick value** with **minimal boilerplate**.
 const config: SimpleBundleConfig<Ticket> = {
   datasetId: 'tickets-example-simple',
   id: 'id', // optional; auto-detects if omitted
-  facets: ['customer', 'priority', 'status', 'productArea'],
+  equal: ['customer', 'priority', 'status', 'productArea'],
   ranges: ['createdAt', 'amount'],
   // autoMeta: true, // default: remaining simple fields become meta
 };
