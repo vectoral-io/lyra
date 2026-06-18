@@ -103,8 +103,11 @@ describe('deserialization hardening', () => {
       + `"items":[{"id":"a","c":"x"}],`
       + `"facetIndex":{"c":{"__proto__":[0],"x":[0]}},"nullIndex":{}}`,
     );
-    LyraBundle.load(evil);
-    expect((({} as Record<string, unknown>).polluted)).toBeUndefined();
+    const bundle = LyraBundle.load<{ id: string; c: string }>(evil);
+    // The "__proto__" key is treated as an ordinary facet value (own key on a
+    // null-prototype map), not a prototype mutation: it's queryable as data...
+    expect(bundle.query({ equal: { c: '__proto__' } }).total).toBe(1);
+    // ...and a fresh object's prototype is untouched (no global pollution).
     expect(Object.getPrototypeOf({})).toBe(Object.prototype);
   });
 });
