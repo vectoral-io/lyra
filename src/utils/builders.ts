@@ -46,9 +46,6 @@ export function buildManifest<TItem extends Record<string, unknown>>(
           `Invalid field type "${cfg.type}" for field "${name}". Must be one of: ${VALID_TYPES.join(', ')}`,
         );
       }
-      if (cfg.kind === 'alias' && !cfg.targetField) {
-        throw new Error(`Alias field "${name}" must specify targetField`);
-      }
 
       return {
         name,
@@ -65,22 +62,8 @@ export function buildManifest<TItem extends Record<string, unknown>>(
     throw new Error('Invalid bundle: fields array must not be empty');
   }
 
-  // Validate alias targets.
-  for (const field of fields) {
-    if (field.kind !== 'alias' || !field.aliasTarget) continue;
-    const target = fields.find((fld) => fld.name === field.aliasTarget);
-    if (!target) {
-      throw new Error(
-        `Alias field "${field.name}" targets non-existent field "${field.aliasTarget}"`,
-      );
-    }
-    if (target.kind !== 'facet' && target.kind !== 'range') {
-      throw new Error(
-        `Alias field "${field.name}" must target a facet or range field, not "${target.kind}"`,
-      );
-    }
-  }
-
+  // Alias targets, capability cross-references, and the kind<->capability
+  // bijection are all validated by validateManifest below (single owner).
   const aliasFields = fields.filter((fld) => fld.kind === 'alias').map((fld) => fld.name);
 
   const manifest: LyraManifest = {
@@ -164,6 +147,30 @@ export function validateManifest(manifest: LyraManifest): void {
   for (const alias of manifest.capabilities.aliases ?? []) {
     if (!seen.has(alias)) {
       throw new Error(`Invalid bundle: capability references non-existent alias field "${alias}"`);
+    }
+  }
+
+  // The reverse direction: capabilities must be the exact projection of field
+  // kinds. A facet/range/alias field omitted from capabilities would validate
+  // yet be silently unqueryable, so assert the bijection and keep `kind` the
+  // single owner of "what is queryable".
+  assertCapabilityCovers(manifest, 'facet', manifest.capabilities.facets, 'facets');
+  assertCapabilityCovers(manifest, 'range', manifest.capabilities.ranges, 'ranges');
+  assertCapabilityCovers(manifest, 'alias', manifest.capabilities.aliases ?? [], 'aliases');
+}
+
+function assertCapabilityCovers(
+  manifest: LyraManifest,
+  kind: FieldKind,
+  capability: string[],
+  label: string,
+): void {
+  const declared = new Set(capability);
+  for (const field of manifest.fields) {
+    if (field.kind === kind && !declared.has(field.name)) {
+      throw new Error(
+        `Invalid bundle: field "${field.name}" has kind "${kind}" but is missing from capabilities.${label}`,
+      );
     }
   }
 }
