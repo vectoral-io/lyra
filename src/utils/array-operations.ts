@@ -216,4 +216,16 @@ function gallopIntersect(
   return writeIndex;
 }
 
+/**
+ * Return a read-only view of the first `len` elements of `source`. For
+ * `Uint32Array` sources we use `subarray` (zero-copy view); other shapes are
+ * passed through unchanged when `len` already matches their length.
+ */
+export function viewOf(source: SortedSource, len: number): SortedSource {
+  if (source instanceof Uint32Array) {
+    return source.length === len ? source : source.subarray(0, len);
+  }
+  return source;
+}
+
 
