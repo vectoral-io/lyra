@@ -112,9 +112,12 @@ jobs:
       pull-requests: write
 
     steps:
+      # fetch-depth: 0 + fetch-tags: true so semantic-release sees prior version
+      # tags (e.g. v4.1.0) and computes the next version correctly.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
       - uses: oven-sh/setup-bun@v1
       # No registry-url here: it makes setup-node write an .npmrc keyed to
       # NODE_AUTH_TOKEN, which shadows NPM_TOKEN and 401s. semantic-release/npm
