@@ -1,6 +1,6 @@
 {
   "name": "@vectoral/lyra",
-  "version": "5.1.0",
+  "version": "4.1.0",
   "type": "module",
   "description": "A lightweight engine for building precomputed, faceted index bundles from structured data",
   "keywords": [
@@ -110,6 +110,7 @@
         {
           "assets": [
             "package.json",
+            "CHANGELOG.md",
             ".github/docs/generated"
           ],
           "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"

@@ -5,39 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [5.1.0] - 2026-06-18
-
-Elegance-review follow-through: security hardening, single-source-of-truth consolidation, and a stricter field-config type. The bundle format is unchanged (`BUNDLE_VERSION` stays `4.1.0`); valid bundles and configs behave exactly as before.
-
-### Security
-
-- Hardened untrusted-bundle deserialization (`load` / `loadBinary`). Block slots are now validated as non-negative in-bounds integers before slicing (a negative/fractional offset previously slipped past the upper-bound check and made `subarray` return a view over the wrong bytes), and index maps are built with `Object.create(null)` so a `__proto__` field/value key lands as an own key instead of mutating a prototype and bypassing the capability allow-list. Both were contained to crafted bundles (no OOB beyond the buffer, no global prototype pollution) but produced silently wrong results.
-
-### Changed
-
-- **`FieldDefinition` is now a discriminated union on `kind`** (was a flat product type). Invalid combinations no longer compile: a `range` field must be `number`/`date`, an `alias` must declare `targetField`, and only `alias` may carry one. Source-breaking **only** for callers writing configs that were already invalid at runtime.
-- `validateManifest` is now the single owner of manifest invariants: alias-target validation (previously duplicated across three functions) lives in one place, and it now asserts the `kind`↔`capabilities` bijection so a facet/range/alias field can't be silently dropped from `capabilities`.
-- `getFacetSummary` on a `date`-typed facet now reports numeric epoch values for epoch-number keys (the facet-key decode is number-first, then `Date.parse`); previously such keys fell back to the raw string and skipped numeric sorting.
-
-### Internal
-
-- Extracted the facet-key codec (`query/facet-key.ts`) and the equal-candidate selection + facet counting (`query/candidates.ts`) out of the `LyraBundle` facade; removed a dead dictionary-encoding heuristic and several duplicated helpers. No behavior change for valid inputs.
-
-## [5.0.0] - 2026-06-17
-
-Package-version bump only. The bundle format is unchanged (`BUNDLE_VERSION` stays `4.1.0`, v3 JSON and v4 binary load exactly as before). The major bump is solely for removing a dead exported type.
-
-### Removed
-
-- **`QuerySchemaOptions`** and the second argument to `buildQuerySchema(manifest)`. The `facetArrayMode` / `includeArrayQueryFormat` options were a v1 leftover, ignored since v2. Call `buildQuerySchema(manifest)` with one argument; if you were passing an options object, drop it.
-
-### Changed
-
-- Docs rewritten for the current API surface (`docs/api.md`, `docs/agents.md`, `docs/errors-and-guarantees.md`); the prior versions documented removed v1 methods and query syntax.
-
-### Internal
-
-- Removed stale committed `.d.ts` files from `src/` (the build emits declarations to `dist/`; these were never published) and gitignored the path so they don't return.
+> Releases from 5.0.0 onward are generated automatically by semantic-release
+> from conventional commits. Entries below 5.0.0 are the prior hand-written history.
 
 ## [4.1.0] - 2026-05-07
 
