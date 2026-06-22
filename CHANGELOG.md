@@ -1,29 +1,3 @@
-# [5.0.0](https://github.com/vectoral-io/lyra/compare/v4.1.0...v5.0.0) (2026-06-22)
-
-
-* feat!: automate releases with semantic-release ([b7b2df0](https://github.com/vectoral-io/lyra/commit/b7b2df0e33216392bfcabb203f4a4195d4658959))
-
-
-### Bug Fixes
-
-* **ci:** declare eslint config's imports as direct devDependencies ([c070b64](https://github.com/vectoral-io/lyra/commit/c070b643bc25aacc1b13f23b38457a8fe83ece81))
-* **examples:** update to v5 API and regenerate loadable bundles ([b380fc8](https://github.com/vectoral-io/lyra/commit/b380fc87794ff8cc2bc86aca4a363c547f3a62f7))
-* **security:** harden untrusted-bundle deserialization ([e3b6fe2](https://github.com/vectoral-io/lyra/commit/e3b6fe2dde00b45bdcf488d54ae5bf536de2d140))
-
-
-### Features
-
-* release Lyra v5.0.0 with major updates and cleanup. Removed deprecated types and improved TypeScript definitions. Enhanced documentation for API changes, including updated query handling and schema generation. Added `.gitignore` entries for stray compiled declarations to maintain a cleaner source tree. ([e1044f3](https://github.com/vectoral-io/lyra/commit/e1044f3736dbaaecfae639074689e90e7f02440c))
-* update dependencies and enhance TypeScript definitions. Upgraded various devDependencies to their latest versions for improved performance and compatibility. Added new TypeScript types and methods for alias handling in LyraBundle, including projection capabilities in queries. Introduced new utility functions for filtering and managing item fields, enhancing overall query efficiency and flexibility. ([75b303e](https://github.com/vectoral-io/lyra/commit/75b303e47cd5b94e828df4eefcbdffb5b644f2e0))
-
-
-### BREAKING CHANGES
-
-* the v5 line removes QuerySchemaOptions and the second argument
-to buildQuerySchema, and makes FieldDefinition a discriminated union on kind
-(range must be number|date; alias requires targetField; only alias may carry
-one). The on-the-wire bundle format is unchanged; valid bundles load as before.
-
 # Changelog
 
 All notable changes to this project will be documented in this file.
