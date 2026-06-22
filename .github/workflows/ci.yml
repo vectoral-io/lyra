@@ -110,6 +110,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      id-token: write # npm OIDC trusted publishing (tokenless)
 
     steps:
       # fetch-depth: 0 + fetch-tags: true so semantic-release sees prior version
@@ -119,12 +120,16 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
       - uses: oven-sh/setup-bun@v1
-      # No registry-url here: it makes setup-node write an .npmrc keyed to
-      # NODE_AUTH_TOKEN, which shadows NPM_TOKEN and 401s. semantic-release/npm
-      # writes its own .npmrc from NPM_TOKEN instead.
+      # No registry-url here: it writes an .npmrc that interferes with the OIDC
+      # publish path. semantic-release/npm authenticates via the GitHub Actions
+      # OIDC token (id-token: write above) against npm's trusted publisher.
       - uses: actions/setup-node@v4
         with:
           node-version: "22.x"
+
+      # npm OIDC trusted publishing requires npm >= 11.5.1; node 22 ships ~10.9.
+      - name: Update npm for OIDC
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: bun install && bun run docs:generate
@@ -136,5 +141,4 @@ jobs:
       - name: Create release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: bunx semantic-release
