@@ -1,3 +1,39 @@
+# 1.0.0 (2026-06-22)
+
+
+* feat!: automate releases with semantic-release ([b7b2df0](https://github.com/vectoral-io/lyra/commit/b7b2df0e33216392bfcabb203f4a4195d4658959))
+
+
+### Bug Fixes
+
+* **ci:** declare eslint config's imports as direct devDependencies ([c070b64](https://github.com/vectoral-io/lyra/commit/c070b643bc25aacc1b13f23b38457a8fe83ece81))
+* correct formatting in bundle and builders files by adjusting else statement placement for improved readability. ([8d038b8](https://github.com/vectoral-io/lyra/commit/8d038b836013de839025c909161d36a85cfa879e))
+* **examples:** update to v5 API and regenerate loadable bundles ([b380fc8](https://github.com/vectoral-io/lyra/commit/b380fc87794ff8cc2bc86aca4a363c547f3a62f7))
+* **security:** harden untrusted-bundle deserialization ([e3b6fe2](https://github.com/vectoral-io/lyra/commit/e3b6fe2dde00b45bdcf488d54ae5bf536de2d140))
+* update type import for range filtering to use RangeBound instead of RangeFilter in array-operations.ts ([47c56cd](https://github.com/vectoral-io/lyra/commit/47c56cd542d722eae964d12da1ea89f4d2e751d9))
+
+
+### Features
+
+* add benchmark diffing script and new benchmark scenarios for performance tracking. Introduced `bench:diff` script to compare latest benchmark results against baseline, highlighting performance regressions. Updated benchmark data for improved performance metrics across various scenarios, including alias resolution and range filtering. Enhanced micro-benchmarks for intersection and union operations to facilitate detailed performance analysis. ([b6973fa](https://github.com/vectoral-io/lyra/commit/b6973fa363be6841e9bf5f12cb96db357a7258f4))
+* add field inclusion and exclusion capabilities in LyraBundle. Introduce includeFields and excludeFields options in CreateBundleConfig to control item fields in bundles. Implement filterItemFields utility to manage field filtering logic, ensuring protected fields are always included and alias fields are excluded. Update tests to validate new configurations and behavior. ([957c65c](https://github.com/vectoral-io/lyra/commit/957c65cbcd6f4662b35c685df2a3947c96a2e349))
+* enhance alias functionality in LyraBundle with new methods for alias resolution and enrichment. Introduce getAliasValues, getAliasMap, getAllAliases, and enrichItems methods for efficient alias handling. Update query behavior to require explicit opt-in for alias enrichment, improving performance and backward compatibility. Comprehensive tests added to validate new features and ensure expected behavior. ([7ca15a9](https://github.com/vectoral-io/lyra/commit/7ca15a9ed619ddb2a187f4f39758c903f3366eae))
+* introduce Lyra v2 with explicit query operators, including `equal`, `notEqual`, `isNull`, and `isNotNull`. Remove deprecated `facets` field and enhance query capabilities with dimension-aware aliases. Update documentation and migration guide to reflect breaking changes and new features. Comprehensive tests added for new operators and alias functionality. ([0e43b85](https://github.com/vectoral-io/lyra/commit/0e43b8570c07349e8de45fd5d850c46682503328))
+* introduce support for array queries in Lyra, allowing complex multi-condition filtering with union and intersection modes. Update query schema to accommodate array formats for facets and ranges, and enhance documentation to reflect new capabilities and usage examples. Add comprehensive tests for array query functionality. ([ed5dbca](https://github.com/vectoral-io/lyra/commit/ed5dbca560e46237e75cdfe0609869799320b034))
+* optimize range filtering and array merging in LyraBundle. Introduce scratchRange for efficient range operations, enhance mergeUnionSorted for small array cases, and improve filterIndicesByRange to utilize pre-computed field types. Update benchmark results reflecting performance improvements. ([af92cd0](https://github.com/vectoral-io/lyra/commit/af92cd0b22781fe8be5a8a30f103ba3f8ab3ddfb))
+* release Lyra v4.1.0 with binary container format and columnar item storage. Introduced `ItemStore` abstraction for efficient data handling, improved serialization performance, and added optional fields for faster hydration. Updated documentation and migration guide for seamless transition from v3.x to v4.x formats. ([d71026d](https://github.com/vectoral-io/lyra/commit/d71026dd718a802661e8dc520466fb14315f0cf4))
+* release Lyra v5.0.0 with major updates and cleanup. Removed deprecated types and improved TypeScript definitions. Enhanced documentation for API changes, including updated query handling and schema generation. Added `.gitignore` entries for stray compiled declarations to maintain a cleaner source tree. ([e1044f3](https://github.com/vectoral-io/lyra/commit/e1044f3736dbaaecfae639074689e90e7f02440c))
+* update dependencies and enhance TypeScript definitions. Upgraded various devDependencies to their latest versions for improved performance and compatibility. Added new TypeScript types and methods for alias handling in LyraBundle, including projection capabilities in queries. Introduced new utility functions for filtering and managing item fields, enhancing overall query efficiency and flexibility. ([75b303e](https://github.com/vectoral-io/lyra/commit/75b303e47cd5b94e828df4eefcbdffb5b644f2e0))
+* upgrade to Lyra v3.0.0 with significant API cleanup and performance improvements. Rebuild required for existing bundles due to format changes. Introduced new alias handling methods and optimized query processing with precomputed null posting lists. Updated documentation and migration guide to assist users in transitioning from v2 to v3. ([a9eb6a2](https://github.com/vectoral-io/lyra/commit/a9eb6a21448b47f39be9340fd98dcb1f8eb8b530))
+
+
+### BREAKING CHANGES
+
+* the v5 line removes QuerySchemaOptions and the second argument
+to buildQuerySchema, and makes FieldDefinition a discriminated union on kind
+(range must be number|date; alias requires targetField; only alias may carry
+one). The on-the-wire bundle format is unchanged; valid bundles load as before.
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
