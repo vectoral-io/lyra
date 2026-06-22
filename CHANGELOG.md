@@ -5,21 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [5.0.0] - 2026-06-17
-
-Package-version bump only. The bundle format is unchanged (`BUNDLE_VERSION` stays `4.1.0`, v3 JSON and v4 binary load exactly as before). The major bump is solely for removing a dead exported type.
-
-### Removed
-
-- **`QuerySchemaOptions`** and the second argument to `buildQuerySchema(manifest)`. The `facetArrayMode` / `includeArrayQueryFormat` options were a v1 leftover, ignored since v2. Call `buildQuerySchema(manifest)` with one argument; if you were passing an options object, drop it.
-
-### Changed
-
-- Docs rewritten for the current API surface (`docs/api.md`, `docs/agents.md`, `docs/errors-and-guarantees.md`); the prior versions documented removed v1 methods and query syntax.
-
-### Internal
-
-- Removed stale committed `.d.ts` files from `src/` (the build emits declarations to `dist/`; these were never published) and gitignored the path so they don't return.
+> Releases from 5.0.0 onward are generated automatically by semantic-release
+> from conventional commits. Entries below 5.0.0 are the prior hand-written history.
 
 ## [4.1.0] - 2026-05-07
 

@@ -252,6 +252,17 @@ describe('LyraBundle - Core Functionality', () => {
     expect(() => {
       LyraBundle.load<Ticket>(json3);
     }).toThrow('capability references non-existent facet field');
+
+    // Bijection: a facet field dropped from capabilities.facets would be
+    // silently unqueryable, so load must reject it.
+    const bundle4 = await LyraBundle.create<Ticket>(tickets, config);
+    const json4 = bundle4.toJSON();
+    const droppedFacet = json4.manifest.capabilities.facets.pop() as string;
+    delete json4.facetIndex[droppedFacet];
+
+    expect(() => {
+      LyraBundle.load<Ticket>(json4);
+    }).toThrow(/has kind "facet" but is missing from capabilities\.facets/);
   });
 
 

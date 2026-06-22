@@ -1,6 +1,6 @@
 {
   "name": "@vectoral/lyra",
-  "version": "5.0.0",
+  "version": "4.1.0",
   "type": "module",
   "description": "A lightweight engine for building precomputed, faceted index bundles from structured data",
   "keywords": [
@@ -50,8 +50,10 @@
     "commit": "bun run lint:fix && git-cz",
     "lint": "eslint . --color --config .config/eslint.config.js",
     "lint:fix": "eslint . --color --fix --config .config/eslint.config.js",
+    "typecheck": "tsc --project .config/tsconfig.json --noEmit",
     "prepublishOnly": "bun run build",
     "test": "bun run lint && vitest --config .config/vitest.config.ts",
+    "test:ci": "vitest run --config .config/vitest.config.ts",
     "test:watch": "bun run test --watch",
     "test:coverage": "bun run test --coverage",
     "docs:generate": "typedoc --options .config/typedoc.config.json",
@@ -68,9 +70,12 @@
     "@semantic-release/git": "^10.0.1",
     "@stylistic/eslint-plugin": "^5.10.0",
     "@types/bun": "^1.3.14",
+    "@typescript-eslint/eslint-plugin": "^8.61.1",
+    "@typescript-eslint/parser": "^8.61.1",
     "@vitest/coverage-v8": "^4.1.9",
     "eslint": "^10.5.0",
     "fast-check": "^4.8.0",
+    "globals": "^17.7.0",
     "semantic-release": "^25.0.5",
     "typedoc": "^0.28.19",
     "typedoc-plugin-markdown": "^4.12.0",
@@ -105,6 +110,7 @@
         {
           "assets": [
             "package.json",
+            "CHANGELOG.md",
             ".github/docs/generated"
           ],
           "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"

@@ -1,100 +1,100 @@
 {
-  "generatedAt": "2026-05-07T09:26:07.087Z",
+  "generatedAt": "2026-06-18T11:52:17.454Z",
   "results": {
     "100k / single facet (customerId)": {
       "iterations": 5000,
-      "meanMs": 0.012269350000000004,
-      "p99Ms": 0.031038320000000112
+      "meanMs": 0.015826425,
+      "p99Ms": 0.03431582000000048
     },
     "100k / multi-facet + ranges + pagination": {
       "iterations": 5000,
-      "meanMs": 0.3271489,
-      "p99Ms": 0.3616150000000016
+      "meanMs": 0.35153809999999996,
+      "p99Ms": 0.3877500000000009
     },
     "10k / full feature set": {
       "iterations": 5000,
-      "meanMs": 0.04085633339999999,
-      "p99Ms": 0.05571834000000308
+      "meanMs": 0.0453409584,
+      "p99Ms": 0.05960332000000562
     },
     "100k / canonical facet (baseline)": {
       "iterations": 5000,
-      "meanMs": 0.015399774999999954,
-      "p99Ms": 0.040653339999998934
+      "meanMs": 0.018326208399999995,
+      "p99Ms": 0.14139000000000124
     },
     "100k / alias resolution": {
       "iterations": 5000,
-      "meanMs": 0.014277499999999964,
-      "p99Ms": 0.019752499999995052
+      "meanMs": 0.015140583199999946,
+      "p99Ms": 0.02483749999999418
     },
     "100k / enrichAliases: true": {
       "iterations": 5000,
-      "meanMs": 0.5312848584000001,
-      "p99Ms": 0.6042900000000009
+      "meanMs": 0.5956293918,
+      "p99Ms": 0.7678058400000008
     },
     "100k / enrichAliases: false": {
       "iterations": 5000,
-      "meanMs": 0.014506074999999874,
-      "p99Ms": 0.022034160000002884
+      "meanMs": 0.016181808199999977,
+      "p99Ms": 0.029796679999999468
     },
     "100k / alias + enrichment": {
       "iterations": 5000,
-      "meanMs": 0.52506965,
-      "p99Ms": 0.6036408200000005
+      "meanMs": 0.5733331916,
+      "p99Ms": 0.681584180000009
     },
     "100k / bundle creation with aliases": {
       "iterations": 5000,
-      "meanMs": 6.352448033399999,
-      "p99Ms": 6.953105820000019
+      "meanMs": 7.3748975834,
+      "p99Ms": 8.220270820000005
     },
     "100k / utility: getAliasValues (single id)": {
       "iterations": 5000,
-      "meanMs": 0.00007785000000003492,
-      "p99Ms": 0.0003383200000098441
+      "meanMs": 0.0000766168000001926,
+      "p99Ms": 0.0005100000000675209
     },
     "100k / utility: enrichItems": {
       "iterations": 5000,
-      "meanMs": 0.006715833400000702,
-      "p99Ms": 0.009012500000098954
+      "meanMs": 0.013591233200000715,
+      "p99Ms": 0.06439334000009694
     },
     "micro / intersectSorted / 50k vs 50k (50% overlap)": {
       "iterations": 5000,
-      "meanMs": 0.04828845000000001,
-      "p99Ms": 0.05155415999994148
+      "meanMs": 0.04846167500000011,
+      "p99Ms": 0.05491418000005069
     },
     "micro / intersectSorted / 50k vs 50k (1% overlap)": {
       "iterations": 5000,
-      "meanMs": 0.04072947500000009,
-      "p99Ms": 0.043597500000032596
+      "meanMs": 0.0416005250000002,
+      "p99Ms": 0.044002500000060535
     },
     "micro / intersectSorted / skewed (100 vs 100k)": {
       "iterations": 5000,
-      "meanMs": 0.0018985083999999916,
-      "p99Ms": 0.003604159999958938
+      "meanMs": 0.0019299333999995725,
+      "p99Ms": 0.0031324999999196735
     },
     "micro / mergeUnionSorted / 8 × 5k": {
       "iterations": 5000,
-      "meanMs": 0.16948320820000082,
-      "p99Ms": 0.21959166000000552
+      "meanMs": 0.1702051250000004,
+      "p99Ms": 0.24870999999999185
     },
     "micro / filterIndicesByRange / 100k × 2 fields": {
       "iterations": 5000,
-      "meanMs": 0.9869556083999996,
-      "p99Ms": 1.0234949999999663
+      "meanMs": 0.9892450333999994,
+      "p99Ms": 1.0340824999999314
     },
     "100k / multi-value IN (8 customers)": {
       "iterations": 5000,
-      "meanMs": 1.2831830999999991,
-      "p99Ms": 1.3687974999999277
+      "meanMs": 1.333425458400001,
+      "p99Ms": 1.503309159999917
     },
     "100k / facet counts only (broad equal)": {
       "iterations": 5000,
-      "meanMs": 1.2656449668,
-      "p99Ms": 1.5242466600000626
+      "meanMs": 1.6144253750000004,
+      "p99Ms": 1.768893340000068
     },
     "100k / ranges only (no equal)": {
       "iterations": 5000,
-      "meanMs": 0.982404475,
-      "p99Ms": 1.044210000000021
+      "meanMs": 0.9907871500000008,
+      "p99Ms": 1.0618716800000403
     }
   }
 }

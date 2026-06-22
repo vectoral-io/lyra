@@ -231,16 +231,26 @@ export interface LyraResult<Item = unknown> {
 
 /**
  * Definition of a single field when creating a bundle.
+ *
+ * A discriminated union on `kind` so invalid combinations can't be expressed:
+ * only `alias` carries (and requires) a `targetField`, and a `range` field must
+ * be numeric or date. `{ kind: 'range', type: 'string' }` and an alias without a
+ * target no longer compile.
  */
-export interface FieldDefinition {
-  kind: FieldKind;
-  type: FieldType;
-  /**
-   * For alias fields: the canonical field this alias resolves to.
-   * Example: If `zone_name` is an alias for `zone_id`, then `targetField = 'zone_id'`.
-   */
-  targetField?: string;
-}
+export type FieldDefinition =
+  | { kind: 'id'; type: FieldType }
+  | { kind: 'facet'; type: FieldType }
+  | { kind: 'range'; type: Extract<FieldType, 'number' | 'date'> }
+  | { kind: 'meta'; type: FieldType }
+  | {
+    kind: 'alias';
+    type: FieldType;
+    /**
+       * The canonical field this alias resolves to. Example: if `zone_name` is
+       * an alias for `zone_id`, then `targetField = 'zone_id'`.
+       */
+    targetField: string;
+  };
 
 type StringKeys<T> = Extract<keyof T, string>;
 

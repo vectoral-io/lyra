@@ -1,8 +1,8 @@
 {
   "manifest": {
-    "version": "1.0.0",
+    "version": "4.1.0",
     "datasetId": "work-items-agent-tool",
-    "builtAt": "2025-11-24T17:38:01.284Z",
+    "builtAt": "2026-06-18T03:22:01.470Z",
     "fields": [
       {
         "name": "id",
@@ -380,5 +380,123 @@
         6
       ]
     }
+  },
+  "nullIndex": {
+    "type": [],
+    "priority": [
+      3,
+      7
+    ],
+    "status": [],
+    "productArea": [],
+    "customer": [
+      2,
+      3,
+      6,
+      7
+    ],
+    "assignee": [
+      3,
+      7
+    ],
+    "createdAt": [],
+    "dueDate": [
+      3,
+      7
+    ],
+    "eventDate": [
+      0,
+      1,
+      2,
+      4,
+      5,
+      6
+    ],
+    "amount": [
+      2,
+      3,
+      6,
+      7
+    ],
+    "attendees": [
+      0,
+      1,
+      2,
+      4,
+      5,
+      6
+    ]
+  },
+  "rangeColumns": {
+    "createdAt": {
+      "encoding": "b64f64",
+      "data": "AADKKQyqeUIAAPTBs6l5QgAAMD50qXlCAABo4muoeUIAAGiUbKp5QgAAqBNjqXlCAAB4iLOqeUIAAMA7qap5Qg=="
+    },
+    "dueDate": {
+      "encoding": "b64f64",
+      "data": "AAAoU7+reUIAAODCW6t5QgAA0L5erXlCAAAAAAAA+H8AAJCw+at5QgAAaFYjqnlCAADAGBereUIAAAAAAAD4fw=="
+    },
+    "eventDate": {
+      "encoding": "b64f64",
+      "data": "AAAAAAAA+H8AAAAAAAD4fwAAAAAAAPh/AADY16ateUIAAAAAAAD4fwAAAAAAAPh/AAAAAAAA+H8AAKiqrKp5Qg=="
+    },
+    "amount": {
+      "encoding": "b64f64",
+      "data": "AAAAAABwl0AAAAAAAEB/QAAAAAAAAPh/AAAAAAAA+H8AAAAAAECfQAAAAAAAwHJAAAAAAAAA+H8AAAAAAAD4fw=="
+    },
+    "attendees": {
+      "encoding": "b64f64",
+      "data": "AAAAAAAA+H8AAAAAAAD4fwAAAAAAAPh/AAAAAADAYkAAAAAAAAD4fwAAAAAAAPh/AAAAAAAA+H8AAAAAAAAoQA=="
+    }
+  },
+  "facetIndexBin": {
+    "type": {
+      "ticket": "AAEDAQ==",
+      "task": "AgQ=",
+      "event": "AwQ="
+    },
+    "priority": {
+      "high": "AAQ=",
+      "medium": "AQU=",
+      "low": "AgM="
+    },
+    "status": {
+      "open": "AAIC",
+      "in_progress": "AQU=",
+      "scheduled": "Aw==",
+      "closed": "BQ==",
+      "completed": "Bw=="
+    },
+    "productArea": {
+      "analytics": "AA==",
+      "core": "AQU=",
+      "docs": "Ag==",
+      "marketing": "Aw==",
+      "mobile": "BA==",
+      "billing": "BQ==",
+      "team": "Bw=="
+    },
+    "customer": {
+      "Acme Corp": "AAE=",
+      "Globex Inc": "BAE="
+    },
+    "assignee": {
+      "alice@example.com": "AAQ=",
+      "bob@example.com": "AQQ=",
+      "charlie@example.com": "AgQ="
+    }
+  },
+  "nullIndexBin": {
+    "type": "",
+    "priority": "AwQ=",
+    "status": "",
+    "productArea": "",
+    "customer": "AgEDAQ==",
+    "assignee": "AwQ=",
+    "createdAt": "",
+    "dueDate": "AwQ=",
+    "eventDate": "AAEBAgEB",
+    "amount": "AgEDAQ==",
+    "attendees": "AAEBAgEB"
   }
 }

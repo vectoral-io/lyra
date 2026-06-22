@@ -179,23 +179,9 @@ export function fromSimpleConfig<T extends Record<string, unknown>>(
     for (const [aliasField, targetField] of Object.entries(cfg.aliases)) {
       const typedAliasField = aliasField as FieldName<T>;
       const typedTargetField = targetField as FieldName<T>;
-      
-      // Validate target field exists
-      if (!fields[typedTargetField]) {
-        throw new Error(
-          `Alias field "${aliasField}" targets non-existent field "${targetField}"`,
-        );
-      }
-      
-      // Validate target is a facet or range (not meta/id)
-      const targetFieldDef = fields[typedTargetField];
-      if (targetFieldDef.kind !== 'facet' && targetFieldDef.kind !== 'range') {
-        throw new Error(
-          `Alias field "${aliasField}" must target a facet or range field, not "${targetFieldDef.kind}"`,
-        );
-      }
-      
-      // Infer alias field type from target field
+
+      // Alias-target existence and kind are validated by validateManifest
+      // (single owner) once buildManifest runs on this config.
       fields[typedAliasField] = {
         kind: 'alias',
         type: inferFieldType(items, typedAliasField, inferMode),

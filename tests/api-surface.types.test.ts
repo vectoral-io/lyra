@@ -36,6 +36,25 @@ describe('Public API Type Surface', () => {
     expectTypeOf(config.fields.id).toMatchTypeOf<FieldDefinition | undefined>();
   });
 
+  it('FieldDefinition makes invalid kind/type/target combos unrepresentable', () => {
+    // A range field must be numeric or date.
+    // @ts-expect-error range fields cannot be string-typed
+    const badRange: FieldDefinition = { kind: 'range', type: 'string' };
+
+    // An alias field must declare a targetField.
+    // @ts-expect-error alias requires targetField
+    const aliasNoTarget: FieldDefinition = { kind: 'alias', type: 'string' };
+
+    // Only alias fields may carry a targetField.
+    // @ts-expect-error non-alias fields cannot carry a targetField
+    const facetWithTarget: FieldDefinition = { kind: 'facet', type: 'string', targetField: 'x' };
+
+    // Valid forms still compile.
+    const okRange: FieldDefinition = { kind: 'range', type: 'date' };
+    const okAlias: FieldDefinition = { kind: 'alias', type: 'string', targetField: 'zone_id' };
+    void badRange; void aliasNoTarget; void facetWithTarget; void okRange; void okAlias;
+  });
+
   it('createBundle returns correct type', async () => {
     const tickets: Ticket[] = [];
     const config: CreateBundleConfig<Ticket> = {

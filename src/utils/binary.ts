@@ -113,6 +113,9 @@ export class BinaryReader {
    * Float64Array and copies bytes into it.
    */
   readF64View(off: number, len: number): Float64Array {
+    if (!Number.isInteger(off) || off < 0 || !Number.isInteger(len) || len < 0) {
+      throw new Error(`BinaryReader.readF64View: invalid range off=${off} len=${len}`);
+    }
     if (off + len > this.bytes.length) {
       throw new Error(
         `BinaryReader.readF64View: range [${off}, ${off + len}) exceeds buffer length ${this.bytes.length}`,

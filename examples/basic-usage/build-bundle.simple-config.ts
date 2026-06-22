@@ -16,7 +16,7 @@ type Ticket = {
 const config: SimpleBundleConfig<Ticket> = {
   datasetId: 'tickets-example-simple',
   id: 'id', // optional; will auto-detect 'id'/'Id'/'ID' if omitted
-  facets: ['customer', 'priority', 'status', 'productArea'],
+  equal: ['customer', 'priority', 'status', 'productArea'],
   ranges: ['createdAt', 'amount'],
   // autoMeta: true, // default: auto-add remaining simple fields as meta
 };

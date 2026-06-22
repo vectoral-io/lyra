@@ -1,10 +1,8 @@
 import type {
   AnyBundleConfig,
   CreateBundleConfig,
-  FacetCounts,
   FacetPostingLists,
   FacetPostingListsBin,
-  FieldType,
   InMemoryFacetIndex,
   InMemoryNullIndex,
   LyraBundleJSON,
@@ -16,14 +14,15 @@ import type {
   NullPostingListsBin,
   RangeColumns,
   RangeColumnsJSON,
-  Scalar,
   SimpleBundleConfig,
 } from './types';
 import { enrichItems, getAliasValues } from './aliases';
 import { filterByExclusions, filterByNullChecks, filterByRanges } from './query/filters';
 import { normalizeQuery, resolveAliases } from './query/normalize';
+import { decodeFacetKey } from './query/facet-key';
 import * as arrayOps from './utils/array-operations';
-import type { SortedSource } from './utils/array-operations';
+import { viewOf, type SortedSource } from './utils/array-operations';
+import { computeFacetCounts, selectEqualCandidates } from './query/candidates';
 import {
   BUNDLE_VERSION,
   buildFacetIndex,
@@ -233,7 +232,15 @@ export class LyraBundle<T extends Record<string, unknown>> {
       : normalized.notEqualFilters;
 
     // 1. Equal candidates.
-    const equalResult = this.getEqualCandidates(resolvedEqual);
+    const equalResult = selectEqualCandidates(
+      resolvedEqual,
+      this.facetIndex,
+      this.allIndices,
+      this.itemStore.length,
+      this.bufEqual,
+      this.bufWorkA,
+      this.bufWorkB,
+    );
     if (equalResult === null) return this.emptyResult(query);
     let candidates: SortedSource = equalResult.buf;
     let candidatesLen = equalResult.len;
@@ -309,7 +316,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
     // 6. Facet counts (canonical facets only).
     const total = candidatesLen;
     const facets = query.includeFacetCounts
-      ? this.computeFacetCounts(candidates, candidatesLen, this.manifest.capabilities.facets)
+      ? computeFacetCounts(this.itemStore, candidates, candidatesLen, this.manifest.capabilities.facets)
       : undefined;
 
     // 7. Pagination.
@@ -335,13 +342,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
     return {
       items: resultItems,
       total,
-      applied: {
-        equal: query.equal,
-        notEqual: query.notEqual,
-        ranges: query.ranges,
-        isNull: query.isNull,
-        isNotNull: query.isNotNull,
-      },
+      applied: this.appliedView(query),
       facets,
       snapshot: this.snapshot(),
     };
@@ -376,7 +377,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
     const rawCounts = result.facets?.[field] ?? {};
     const values: Array<{ value: string | number | boolean; count: number }> = [];
     for (const [key, count] of Object.entries(rawCounts)) {
-      values.push({ value: parseFacetKey(fieldDef.type, key), count });
+      values.push({ value: decodeFacetKey(fieldDef.type, key), count });
     }
 
     values.sort((first, second) => {
@@ -592,9 +593,12 @@ export class LyraBundle<T extends Record<string, unknown>> {
       }
     }
 
-    const facetIndex: InMemoryFacetIndex = {};
+    // Null-prototype maps: a facet field or value named "__proto__" must land
+    // as an own key, not mutate the map's prototype — which would corrupt
+    // query-time lookups and slip past the capability allow-list checked above.
+    const facetIndex: InMemoryFacetIndex = Object.create(null);
     for (const field of manifest.capabilities.facets) {
-      const out: Record<string, Uint32Array> = {};
+      const out: Record<string, Uint32Array> = Object.create(null);
       const binByValue = rawFacetBin?.[field];
       if (binByValue) {
         for (const valueKey in binByValue) {
@@ -612,7 +616,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
       facetIndex[field] = out;
     }
 
-    const nullIndex: InMemoryNullIndex = {};
+    const nullIndex: InMemoryNullIndex = Object.create(null);
     if (rawNullBin) {
       for (const field in rawNullBin) {
         nullIndex[field] = deltaVarintDecode(rawNullBin[field]);
@@ -628,7 +632,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
     // the lazy getter rebuild from items on first range query (legacy path).
     let preloadedRangeColumns: RangeColumns | null = null;
     if (raw.rangeColumns) {
-      preloadedRangeColumns = {};
+      preloadedRangeColumns = Object.create(null) as RangeColumns;
       for (const field in raw.rangeColumns) {
         const block = raw.rangeColumns[field];
         if (block.encoding !== 'b64f64') {
@@ -714,146 +718,17 @@ export class LyraBundle<T extends Record<string, unknown>> {
   // ---- Private helpers ----
 
   /**
-   * Compute candidate indices from `equal` filters.
-   *
-   * Empty filters → all indices. Any field not in the facet index → no matches.
-   * Intersects posting lists in order of increasing size. Returns null on no-match.
-   *
-   * Result `buf` may be:
-   * - this.allIndices (no filters)
-   * - a posting list directly from the facet index (single field, single value)
-   * - this.bufWorkA after a multi-value union (single field, multi value)
-   * - this.bufEqual after K-way intersection (multi field)
-   *
+   * The filter view echoed back on a result. (Reflects the requested filters.)
    * @internal
    */
-  private getEqualCandidates(
-    equalFilters: Record<string, Scalar | Scalar[]>,
-  ): { buf: SortedSource; len: number } | null {
-    const fields = Object.keys(equalFilters);
-    if (fields.length === 0) return { buf: this.allIndices, len: this.itemStore.length };
-
-    // Single-field fast path. Avoids per-query allocation: posting lists return
-    // by reference, multi-value unions write directly into bufEqual.
-    if (fields.length === 1) {
-      const field = fields[0];
-      const byValue = this.facetIndex[field];
-      if (!byValue) return null;
-
-      const value = equalFilters[field];
-      const values = Array.isArray(value) ? value : [value];
-      if (values.length === 0) return null;
-
-      if (values.length === 1) {
-        const postings = byValue[String(values[0])];
-        if (!postings || postings.length === 0) return null;
-        return { buf: postings, len: postings.length };
-      }
-
-      const postingsArrays: SortedSource[] = [];
-      for (const candidateValue of values) {
-        const postings = byValue[String(candidateValue)];
-        if (postings && postings.length > 0) postingsArrays.push(postings);
-      }
-      if (postingsArrays.length === 0) return null;
-      if (postingsArrays.length === 1) {
-        return { buf: postingsArrays[0], len: postingsArrays[0].length };
-      }
-
-      const len = arrayOps.mergeUnionSorted(postingsArrays, this.bufEqual);
-      return { buf: this.bufEqual, len };
-    }
-
-    // Multi-field path. Each field contributes a posting list (or per-field
-    // union); we intersect smallest-first using bufWorkA/bufWorkB ping-pong
-    // and land the final result in bufEqual.
-    interface FacetEntry { postings: SortedSource; size: number }
-    const entries: FacetEntry[] = [];
-
-    for (const field of fields) {
-      const byValue = this.facetIndex[field];
-      if (!byValue) return null;
-
-      const value = equalFilters[field];
-      const values = Array.isArray(value) ? value : [value];
-      if (values.length === 0) return null;
-
-      if (values.length === 1) {
-        const postings = byValue[String(values[0])];
-        if (!postings || postings.length === 0) return null;
-        entries.push({ postings, size: postings.length });
-        continue;
-      }
-
-      const postingsArrays: SortedSource[] = [];
-      for (const candidateValue of values) {
-        const postings = byValue[String(candidateValue)];
-        if (postings && postings.length > 0) postingsArrays.push(postings);
-      }
-      if (postingsArrays.length === 0) return null;
-
-      // Per-field union must be held through the K-way intersection below, so
-      // copy out of the shared workspace. Only the multi-field-multi-value case
-      // pays this allocation; single-field multi-value is handled above.
-      const len = arrayOps.mergeUnionSorted(postingsArrays, this.bufWorkA);
-      entries.push({ postings: this.bufWorkA.slice(0, len), size: len });
-    }
-
-    entries.sort((entryA, entryB) => entryA.size - entryB.size);
-
-    let current: SortedSource = entries[0].postings;
-    let currentLen = entries[0].size;
-    let workTarget: Uint32Array = this.bufWorkA;
-    let workOther: Uint32Array = this.bufWorkB;
-    for (let i = 1; i < entries.length; i++) {
-      const finalRound = i === entries.length - 1;
-      const target = finalRound ? this.bufEqual : workTarget;
-      const written = arrayOps.intersectSorted(
-        viewOf(current, currentLen),
-        entries[i].postings,
-        target,
-      );
-      if (written === 0) return null;
-      current = target;
-      currentLen = written;
-      if (!finalRound) {
-        const swap = workTarget; workTarget = workOther; workOther = swap;
-      }
-    }
-    return { buf: this.bufEqual, len: currentLen };
-  }
-
-  /**
-   * Compute facet counts over a set of candidate indices (canonical facets only).
-   * @internal
-   */
-  private computeFacetCounts(
-    indices: SortedSource,
-    indicesLen: number,
-    facetFields: string[],
-  ): FacetCounts {
-    const counts: FacetCounts = {};
-    for (const field of facetFields) counts[field] = {};
-
-    for (let i = 0; i < indicesLen; i++) {
-      const idx = indices[i];
-      for (const field of facetFields) {
-        const raw = this.itemStore.getField(idx, field);
-        if (raw === undefined || raw === null) continue;
-        const bucket = counts[field];
-        if (Array.isArray(raw)) {
-          for (const value of raw) {
-            const key = String(value);
-            bucket[key] = (bucket[key] ?? 0) + 1;
-          }
-        }
-        else {
-          const key = String(raw);
-          bucket[key] = (bucket[key] ?? 0) + 1;
-        }
-      }
-    }
-    return counts;
+  private appliedView(query: LyraQuery): LyraResult<T>['applied'] {
+    return {
+      equal: query.equal,
+      notEqual: query.notEqual,
+      ranges: query.ranges,
+      isNull: query.isNull,
+      isNotNull: query.isNotNull,
+    };
   }
 
   /**
@@ -864,13 +739,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
     return {
       items: [],
       total: 0,
-      applied: {
-        equal: query.equal,
-        notEqual: query.notEqual,
-        ranges: query.ranges,
-        isNull: query.isNull,
-        isNotNull: query.isNotNull,
-      },
+      applied: this.appliedView(query),
       facets: undefined,
       snapshot: this.snapshot(),
     };
@@ -884,19 +753,6 @@ export { BUNDLE_VERSION };
 // ==============================
 
 /**
- * Return a read-only view of the first `len` elements of `source`. For
- * `Uint32Array` sources we use `subarray` (zero-copy view); other shapes (the
- * cached `allIndices`) are passed through unchanged when len matches.
- * @internal
- */
-function viewOf(source: SortedSource, len: number): SortedSource {
-  if (source instanceof Uint32Array) {
-    return source.length === len ? source : source.subarray(0, len);
-  }
-  return source;
-}
-
-/**
  * Pre-allocated copy from a plain `number[]` to a `Uint32Array`. Faster than
  * `Uint32Array.from(arr)` because it avoids the iterator protocol and the
  * intermediate spec-mandated growth path; one allocation, one tight loop.
@@ -908,23 +764,4 @@ function numberArrayToUint32(source: number[]): Uint32Array {
   return out;
 }
 
-/**
- * Parse a facet key string back to its typed value based on field type.
- * Used by `getFacetSummary` to convert string keys back to typed values.
- * @internal
- */
-function parseFacetKey(fieldType: FieldType, key: string): string | number | boolean {
-  switch (fieldType) {
-    case 'number':
-      return Number(key);
-    case 'boolean':
-      return key === 'true';
-    case 'date': {
-      const parsed = Date.parse(key);
-      return Number.isNaN(parsed) ? key : parsed;
-    }
-    default:
-      return key;
-  }
-}
 

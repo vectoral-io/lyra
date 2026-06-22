@@ -245,28 +245,27 @@ export function decodeV4<T extends Record<string, unknown>>(bytes: Uint8Array): 
 
   const items = decodeItems<T>(bytes, bodyStart, header.blocks.items);
 
-  const facetIndex: InMemoryFacetIndex = {};
+  // Bundle-controlled keys (field names, facet values) populate these maps.
+  // Use null-prototype objects so a key like "__proto__" becomes an own
+  // property instead of mutating the map's prototype — which would both
+  // corrupt query-time lookups and hide the key from the capability allow-list
+  // check (Object.keys) in the loader.
+  const facetIndex: InMemoryFacetIndex = Object.create(null);
   for (const field of Object.keys(header.blocks.facetIndex)) {
     const byValue = header.blocks.facetIndex[field];
-    const out: Record<string, Uint32Array> = {};
+    const out: Record<string, Uint32Array> = Object.create(null);
     for (const valueKey of Object.keys(byValue)) {
-      const slot = byValue[valueKey];
-      const absOff = bodyStart + slot.off;
-      const slice = bytes.subarray(absOff, absOff + slot.len);
-      out[valueKey] = deltaVarintDecodeBytes(slice);
+      out[valueKey] = deltaVarintDecodeBytes(sliceBlob(bytes, bodyStart, byValue[valueKey]));
     }
     facetIndex[field] = out;
   }
 
-  const nullIndex: InMemoryNullIndex = {};
+  const nullIndex: InMemoryNullIndex = Object.create(null);
   for (const field of Object.keys(header.blocks.nullIndex)) {
-    const slot = header.blocks.nullIndex[field];
-    const absOff = bodyStart + slot.off;
-    const slice = bytes.subarray(absOff, absOff + slot.len);
-    nullIndex[field] = deltaVarintDecodeBytes(slice);
+    nullIndex[field] = deltaVarintDecodeBytes(sliceBlob(bytes, bodyStart, header.blocks.nullIndex[field]));
   }
 
-  const rangeColumns: RangeColumns = {};
+  const rangeColumns: RangeColumns = Object.create(null);
   for (const field of Object.keys(header.blocks.rangeColumns)) {
     const slot = header.blocks.rangeColumns[field];
     if (slot.dtype !== 'f64') {
@@ -274,6 +273,7 @@ export function decodeV4<T extends Record<string, unknown>>(bytes: Uint8Array): 
         `Invalid v4 bundle: rangeColumns["${field}"] has unsupported dtype "${slot.dtype}"`,
       );
     }
+    checkSlot(slot, bodyStart, bytes.length);
     rangeColumns[field] = reader.readF64View(bodyStart + slot.off, slot.len);
   }
 
@@ -288,9 +288,7 @@ function decodeItems<T extends Record<string, unknown>>(
   slot: ItemsSlot,
 ): V4ItemsOutput<T> {
   if (slot.encoding === 'json') {
-    const off = bodyStart + slot.off;
-    const slice = bytes.subarray(off, off + slot.len);
-    const rows = JSON.parse(utf8Decoder.decode(slice)) as T[];
+    const rows = JSON.parse(utf8Decoder.decode(sliceBlob(bytes, bodyStart, slot))) as T[];
     return { kind: 'rows', rows };
   }
   if (slot.encoding === 'columnar') {
@@ -421,6 +419,7 @@ function readColumn(bytes: Uint8Array, bodyStart: number, slot: ColumnSlot): Col
     }
     case 'f64': {
       if (!slot.data) throw new Error('Invalid v4 bundle: f64 column missing data slot');
+      checkSlot(slot.data, bodyStart, bytes.length);
       const reader = new BinaryReader(bytes);
       const data = reader.readF64View(bodyStart + slot.data.off, slot.data.len);
       return { encoding: 'f64', nullBitmap, data };
@@ -452,15 +451,31 @@ function writeBlob(body: BinaryWriter, bytes: Uint8Array): { off: number; len: n
   return { off, len: bytes.length };
 }
 
+/**
+ * Validate a block slot's offset and length before slicing. Header offsets are
+ * attacker-controlled on an untrusted bundle: a negative or fractional `off`
+ * would slip past a bare upper-bound check and make `subarray` reinterpret the
+ * range relative to the buffer end, silently yielding the wrong bytes (a view,
+ * a posting list, or a range column over attacker-chosen data) rather than a
+ * clean rejection. Require non-negative safe integers within bounds.
+ */
+function checkSlot(slot: { off: number; len: number }, bodyStart: number, bufLen: number): void {
+  if (!Number.isInteger(slot.off) || slot.off < 0 || !Number.isInteger(slot.len) || slot.len < 0) {
+    throw new Error(`Invalid v4 bundle: block slot has invalid off/len (off=${slot.off}, len=${slot.len})`);
+  }
+  if (bodyStart + slot.off + slot.len > bufLen) {
+    const lo = bodyStart + slot.off;
+    throw new Error(`Invalid v4 bundle: block [${lo}, ${lo + slot.len}) exceeds buffer length ${bufLen}`);
+  }
+}
+
 function sliceBlob(
   bytes: Uint8Array,
   bodyStart: number,
   slot: { off: number; len: number },
 ): Uint8Array {
+  checkSlot(slot, bodyStart, bytes.length);
   const off = bodyStart + slot.off;
-  if (off + slot.len > bytes.length) {
-    throw new Error(`Invalid v4 bundle: blob [${off}, ${off + slot.len}) exceeds buffer length ${bytes.length}`);
-  }
   return bytes.subarray(off, off + slot.len);
 }
 

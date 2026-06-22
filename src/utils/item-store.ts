@@ -11,8 +11,6 @@
  * @internal
  */
 
-const FLAG_NULL = 1;
-
 // Packed-bit helpers. A "bitmap" here is a Uint8Array where each bit at index
 // `i` lives in byte `i >>> BIT_INDEX_SHIFT`, position `i & BIT_INDEX_MASK`.
 const BIT_INDEX_SHIFT = 3;
@@ -116,9 +114,6 @@ export interface Column {
   jsonBytes?: Uint8Array;
 }
 
-const DICT_DISTINCT_RATIO = 4;
-const DICT_MAX_DISTINCT = 65_536;
-
 /**
  * Encode a single field across `rows` into a `Column`. The encoding heuristic
  * picks `utf8-dict` for low-cardinality string columns, `f64` for numeric
@@ -156,21 +151,14 @@ export function encodeColumn<T extends Record<string, unknown>>(
   if (nonNull === 0) {
     // Field is entirely null. Use a degenerate dict column (no values).
     for (let i = 0; i < len; i++) setBit(nullBitmap, i);
-    void FLAG_NULL;
     return { encoding: 'utf8-dict', nullBitmap, dict: [], indices: new Uint32Array(len) };
   }
 
   if (sawBool === nonNull) return encodeBoolColumn(rows, field, len, nullBitmap);
   if (sawNumber === nonNull) return encodeF64Column(rows, field, len, nullBitmap);
-  if (sawString === nonNull) {
-    const distinct = countDistinctStrings(rows, field, nonNull);
-    if (distinct <= DICT_MAX_DISTINCT && distinct * DICT_DISTINCT_RATIO < nonNull) {
-      return encodeDictColumn(rows, field, len, nullBitmap);
-    }
-    // Fall through to dict regardless: simpler and still O(distinct) bytes for
-    // the dictionary plus 4n for indices.
-    return encodeDictColumn(rows, field, len, nullBitmap);
-  }
+  // Strings always dict-encode: O(distinct) bytes for the dictionary plus 4n
+  // for the index array, regardless of cardinality.
+  if (sawString === nonNull) return encodeDictColumn(rows, field, len, nullBitmap);
   return encodeJsonFallback(rows, field, nullBitmap);
 }
 
@@ -209,20 +197,6 @@ function encodeF64Column<T extends Record<string, unknown>>(
     data[i] = raw as number;
   }
   return { encoding: 'f64', nullBitmap, data };
-}
-
-function countDistinctStrings<T extends Record<string, unknown>>(
-  rows: T[],
-  field: string,
-  expected: number,
-): number {
-  void expected;
-  const seen = new Set<string>();
-  for (let i = 0; i < rows.length; i++) {
-    const raw = (rows[i] as Record<string, unknown>)[field];
-    if (typeof raw === 'string') seen.add(raw);
-  }
-  return seen.size;
 }
 
 function encodeDictColumn<T extends Record<string, unknown>>(
