@@ -2,7 +2,7 @@
 
 # Interface: LyraResult\<Item\>
 
-Defined in: [types.ts:218](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L218)
+Defined in: [types.ts:224](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L224)
 
 Structured result of executing a query against a bundle.
 
@@ -26,7 +26,7 @@ applied: {
 };
 ```
 
-Defined in: [types.ts:221](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L221)
+Defined in: [types.ts:227](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L227)
 
 #### equal?
 
@@ -66,7 +66,7 @@ optional ranges?: Record<string, RangeBound>;
 optional facets?: FacetCounts;
 ```
 
-Defined in: [types.ts:228](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L228)
+Defined in: [types.ts:234](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L234)
 
 ***
 
@@ -76,7 +76,7 @@ Defined in: [types.ts:228](https://github.com/vectoral-io/lyra/blob/main/src/typ
 items: Item[];
 ```
 
-Defined in: [types.ts:219](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L219)
+Defined in: [types.ts:225](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L225)
 
 ***
 
@@ -86,7 +86,7 @@ Defined in: [types.ts:219](https://github.com/vectoral-io/lyra/blob/main/src/typ
 snapshot: LyraSnapshotInfo;
 ```
 
-Defined in: [types.ts:229](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L229)
+Defined in: [types.ts:235](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L235)
 
 ***
 
@@ -96,4 +96,4 @@ Defined in: [types.ts:229](https://github.com/vectoral-io/lyra/blob/main/src/typ
 total: number;
 ```
 
-Defined in: [types.ts:220](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L220)
+Defined in: [types.ts:226](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L226)

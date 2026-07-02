@@ -14,7 +14,7 @@ type LyraBundleJSON<T> = {
 };
 ```
 
-Defined in: [types.ts:416](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L416)
+Defined in: [types.ts:422](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L422)
 
 Serialized bundle format (v3).
 
@@ -36,7 +36,7 @@ continue to use the legacy `facetIndex` / `nullIndex`.
 facetIndex: FacetPostingLists;
 ```
 
-Defined in: [types.ts:419](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L419)
+Defined in: [types.ts:425](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L425)
 
 ***
 
@@ -46,7 +46,7 @@ Defined in: [types.ts:419](https://github.com/vectoral-io/lyra/blob/main/src/typ
 optional facetIndexBin?: FacetPostingListsBin;
 ```
 
-Defined in: [types.ts:431](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L431)
+Defined in: [types.ts:437](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L437)
 
 v3.1 (optional): delta+varint base64 facet posting lists. Smaller wire size
 and faster hydrate than `facetIndex`. When present, takes precedence.
@@ -59,7 +59,7 @@ and faster hydrate than `facetIndex`. When present, takes precedence.
 items: T[];
 ```
 
-Defined in: [types.ts:418](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L418)
+Defined in: [types.ts:424](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L424)
 
 ***
 
@@ -69,7 +69,7 @@ Defined in: [types.ts:418](https://github.com/vectoral-io/lyra/blob/main/src/typ
 manifest: LyraManifest;
 ```
 
-Defined in: [types.ts:417](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L417)
+Defined in: [types.ts:423](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L423)
 
 ***
 
@@ -79,7 +79,7 @@ Defined in: [types.ts:417](https://github.com/vectoral-io/lyra/blob/main/src/typ
 nullIndex: NullPostingLists;
 ```
 
-Defined in: [types.ts:421](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L421)
+Defined in: [types.ts:427](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L427)
 
 Null posting lists, keyed by field name.
 
@@ -91,7 +91,7 @@ Null posting lists, keyed by field name.
 optional nullIndexBin?: NullPostingListsBin;
 ```
 
-Defined in: [types.ts:436](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L436)
+Defined in: [types.ts:442](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L442)
 
 v3.1 (optional): delta+varint base64 null posting lists. When present,
 takes precedence over `nullIndex`.
@@ -104,7 +104,7 @@ takes precedence over `nullIndex`.
 optional rangeColumns?: RangeColumnsJSON;
 ```
 
-Defined in: [types.ts:426](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L426)
+Defined in: [types.ts:432](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L432)
 
 v3.1 (optional): pre-encoded range columns. Avoids a per-load rescan of
 items + Date.parse storm.

@@ -8,7 +8,7 @@ type AnyBundleConfig<TItem> =
 | SimpleBundleConfig<TItem>;
 ```
 
-Defined in: [types.ts:347](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L347)
+Defined in: [types.ts:353](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L353)
 
 Union type representing either explicit or simple bundle configuration.
 Used internally by `createBundle` to support both configuration styles.

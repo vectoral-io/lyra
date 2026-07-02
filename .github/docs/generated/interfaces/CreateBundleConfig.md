@@ -2,7 +2,7 @@
 
 # Interface: CreateBundleConfig\<TItem\>
 
-Defined in: [types.ts:262](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L262)
+Defined in: [types.ts:268](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L268)
 
 Bundle configuration for a given item type.
 
@@ -22,7 +22,7 @@ TItem is your row shape, e.g. Ticket, User, etc.
 datasetId: string;
 ```
 
-Defined in: [types.ts:263](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L263)
+Defined in: [types.ts:269](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L269)
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [types.ts:263](https://github.com/vectoral-io/lyra/blob/main/src/typ
 fields: { [K in string]?: FieldDefinition };
 ```
 
-Defined in: [types.ts:270](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L270)
+Defined in: [types.ts:276](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L276)
 
 Fields to be indexed or tracked in the manifest.
 

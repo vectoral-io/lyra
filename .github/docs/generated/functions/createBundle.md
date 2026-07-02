@@ -8,7 +8,7 @@
 function createBundle<T>(items, config): Promise<LyraBundle<T>>;
 ```
 
-Defined in: [bundle.ts:57](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L57)
+Defined in: [bundle.ts:47](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L47)
 
 Create a bundle from items.
 
@@ -39,7 +39,7 @@ Overloads:
 function createBundle<T>(items, config): Promise<LyraBundle<T>>;
 ```
 
-Defined in: [bundle.ts:61](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L61)
+Defined in: [bundle.ts:51](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L51)
 
 Create a bundle from items.
 

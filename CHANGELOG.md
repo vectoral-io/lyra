@@ -1,3 +1,10 @@
+## [5.0.1](https://github.com/vectoral-io/lyra/compare/v5.0.0...v5.0.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* harden untrusted bundle load path per review ([a67dddb](https://github.com/vectoral-io/lyra/commit/a67dddbb458fdcdeb9b7a5dedcada0e502c56e7a))
+
 # [5.0.0](https://github.com/vectoral-io/lyra/compare/v4.1.0...v5.0.0) (2026-06-23)
 
 

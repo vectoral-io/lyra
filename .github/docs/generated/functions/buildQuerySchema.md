@@ -6,7 +6,7 @@
 function buildQuerySchema(manifest): JsonSchema;
 ```
 
-Defined in: [schema.ts:25](https://github.com/vectoral-io/lyra/blob/main/src/schema.ts#L25)
+Defined in: [schema.ts:40](https://github.com/vectoral-io/lyra/blob/main/src/schema.ts#L40)
 
 Build a JSON schema describing a `LyraQuery` for a given manifest.
 

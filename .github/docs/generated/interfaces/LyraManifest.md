@@ -2,7 +2,7 @@
 
 # Interface: LyraManifest
 
-Defined in: [types.ts:194](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L194)
+Defined in: [types.ts:200](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L200)
 
 Manifest describing an entire bundle and its capabilities.
 
@@ -14,7 +14,7 @@ Manifest describing an entire bundle and its capabilities.
 builtAt: string;
 ```
 
-Defined in: [types.ts:197](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L197)
+Defined in: [types.ts:203](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L203)
 
 ***
 
@@ -28,7 +28,7 @@ capabilities: {
 };
 ```
 
-Defined in: [types.ts:199](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L199)
+Defined in: [types.ts:205](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L205)
 
 #### aliases?
 
@@ -62,7 +62,7 @@ Range field names (indexed for numeric/date filtering)
 datasetId: string;
 ```
 
-Defined in: [types.ts:196](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L196)
+Defined in: [types.ts:202](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L202)
 
 ***
 
@@ -72,7 +72,7 @@ Defined in: [types.ts:196](https://github.com/vectoral-io/lyra/blob/main/src/typ
 fields: LyraField[];
 ```
 
-Defined in: [types.ts:198](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L198)
+Defined in: [types.ts:204](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L204)
 
 ***
 
@@ -82,7 +82,7 @@ Defined in: [types.ts:198](https://github.com/vectoral-io/lyra/blob/main/src/typ
 optional lookups?: Record<string, LookupTable>;
 ```
 
-Defined in: [types.ts:212](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L212)
+Defined in: [types.ts:218](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L218)
 
 **`Internal`**
 
@@ -97,4 +97,4 @@ Auto-generated during bundle creation. Not configurable by users.
 version: string;
 ```
 
-Defined in: [types.ts:195](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L195)
+Defined in: [types.ts:201](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L201)

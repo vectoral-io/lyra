@@ -2,7 +2,7 @@
 
 # Class: LyraBundle\<T\>
 
-Defined in: [bundle.ts:78](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L78)
+Defined in: [bundle.ts:71](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L71)
 
 Immutable bundle of items plus a manifest that describes fields and capabilities.
 
@@ -22,7 +22,7 @@ Immutable bundle of items plus a manifest that describes fields and capabilities
 get isDisposed(): boolean;
 ```
 
-Defined in: [bundle.ts:449](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L449)
+Defined in: [bundle.ts:436](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L436)
 
 Whether this bundle has been disposed.
 
@@ -38,7 +38,7 @@ Whether this bundle has been disposed.
 describe(): LyraManifest;
 ```
 
-Defined in: [bundle.ts:431](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L431)
+Defined in: [bundle.ts:418](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L418)
 
 Return the bundle manifest describing fields and capabilities.
 
@@ -54,7 +54,7 @@ Return the bundle manifest describing fields and capabilities.
 dispose(): void;
 ```
 
-Defined in: [bundle.ts:463](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L463)
+Defined in: [bundle.ts:450](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L450)
 
 Release every heavy structure this bundle holds — item columns, facet and
 null posting lists, range columns, and the query scratch buffers — so they
@@ -77,7 +77,7 @@ Idempotent. After disposal, metadata methods (`describe`, `snapshot`,
 enrichItems(items, aliasFields): T & Record<string, string[]>[];
 ```
 
-Defined in: [bundle.ts:421](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L421)
+Defined in: [bundle.ts:408](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L408)
 
 Enrich a list of items with alias fields by batch lookup.
 
@@ -111,7 +111,7 @@ const enriched = bundle.enrichItems(result.items, ['zone_name', 'zone_label']);
 getAliasValues(aliasField, canonicalId): string[];
 ```
 
-Defined in: [bundle.ts:404](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L404)
+Defined in: [bundle.ts:391](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L391)
 
 Look up alias values for a single canonical ID.
 
@@ -146,7 +146,7 @@ getFacetSummary(field, options?): {
 };
 ```
 
-Defined in: [bundle.ts:356](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L356)
+Defined in: [bundle.ts:343](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L343)
 
 Get a summary of distinct values and counts for a facet field.
 
@@ -175,8 +175,8 @@ Returns distinct values and their counts, optionally filtered by other facets or
 
 | Name | Type | Defined in |
 | ------ | ------ | ------ |
-| `field` | `string` | [bundle.ts:359](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L359) |
-| `values` | \{ `count`: `number`; `value`: `string` \| `number` \| `boolean`; \}[] | [bundle.ts:359](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L359) |
+| `field` | `string` | [bundle.ts:346](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L346) |
+| `values` | \{ `count`: `number`; `value`: `string` \| `number` \| `boolean`; \}[] | [bundle.ts:346](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L346) |
 
 ***
 
@@ -186,7 +186,7 @@ Returns distinct values and their counts, optionally filtered by other facets or
 query(query?): LyraResult<T>;
 ```
 
-Defined in: [bundle.ts:220](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L220)
+Defined in: [bundle.ts:198](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L198)
 
 Execute a query against the bundle.
 
@@ -216,7 +216,7 @@ Query contract:
 serialize(): LyraBundleJSON<T>;
 ```
 
-Defined in: [bundle.ts:538](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L538)
+Defined in: [bundle.ts:487](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L487)
 
 Serialize the bundle. By default produces a JSON-compatible value (same as
 `toJSON()`); pass `'binary'` to produce a v4 binary container.
@@ -235,7 +235,7 @@ non-human-readable.
 serialize(format): LyraBundleJSON<T>;
 ```
 
-Defined in: [bundle.ts:539](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L539)
+Defined in: [bundle.ts:488](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L488)
 
 Serialize the bundle. By default produces a JSON-compatible value (same as
 `toJSON()`); pass `'binary'` to produce a v4 binary container.
@@ -260,7 +260,7 @@ non-human-readable.
 serialize(format): Uint8Array;
 ```
 
-Defined in: [bundle.ts:540](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L540)
+Defined in: [bundle.ts:489](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L489)
 
 Serialize the bundle. By default produces a JSON-compatible value (same as
 `toJSON()`); pass `'binary'` to produce a v4 binary container.
@@ -287,7 +287,7 @@ non-human-readable.
 snapshot(): LyraSnapshotInfo;
 ```
 
-Defined in: [bundle.ts:438](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L438)
+Defined in: [bundle.ts:425](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L425)
 
 Return the bundle snapshot metadata.
 
@@ -303,7 +303,7 @@ Return the bundle snapshot metadata.
 toJSON(): LyraBundleJSON<T>;
 ```
 
-Defined in: [bundle.ts:487](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L487)
+Defined in: [bundle.ts:469](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L469)
 
 Serialize the bundle to a plain JSON-compatible structure.
 
@@ -311,7 +311,8 @@ Emits the v3.0 legacy fields (`facetIndex`, `nullIndex` as `number[]`) for
 back-compat, plus the v3.1 binary fields (`rangeColumns`, `facetIndexBin`,
 `nullIndexBin`) which loaders prefer for faster, smaller hydration.
 
-! NOTE: Any structural change here must be reflected in docs/bundle-json-spec.md
+Format encode/decode lives in `utils/json-bundle.ts`; this just supplies the
+in-memory structures (materializing range columns so they ride on the wire).
 
 #### Returns
 
@@ -325,7 +326,7 @@ back-compat, plus the v3.1 binary fields (`rangeColumns`, `facetIndexBin`,
 static create<TItem>(items, config): Promise<LyraBundle<TItem>>;
 ```
 
-Defined in: [bundle.ts:166](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L166)
+Defined in: [bundle.ts:144](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L144)
 
 Build a new bundle from raw items and bundle configuration.
 
@@ -354,7 +355,7 @@ Build a new bundle from raw items and bundle configuration.
 static load<TItem>(raw): LyraBundle<TItem>;
 ```
 
-Defined in: [bundle.ts:566](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L566)
+Defined in: [bundle.ts:515](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L515)
 
 Load a bundle from a previously serialized JSON value or v4 binary buffer.
 
@@ -391,14 +392,15 @@ For `Uint8Array` input: autodetects v4 by magic bytes and dispatches to
 static loadBinary<TItem>(bytes): LyraBundle<TItem>;
 ```
 
-Defined in: [bundle.ts:664](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L664)
+Defined in: [bundle.ts:549](https://github.com/vectoral-io/lyra/blob/main/src/bundle.ts#L549)
 
 Load a bundle from a v4 binary buffer. Autodetected by `load(...)` when
 passed a `Uint8Array`; expose explicitly for callers that prefer the
 direct path.
 
-Validates the manifest and ensures every facet/null index field is
-declared in `capabilities`; rejects unknown fields with a clear error.
+Validation (manifest consistency, facet allow-list, and posting bounds
+against the item count) runs through the shared `validateDecodedBundle`, so
+the JSON and binary paths reject hostile input by the same rules.
 
 #### Type Parameters
 

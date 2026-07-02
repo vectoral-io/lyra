@@ -27,7 +27,7 @@ type FieldDefinition =
 };
 ```
 
-Defined in: [types.ts:240](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L240)
+Defined in: [types.ts:246](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L246)
 
 Definition of a single field when creating a bundle.
 
@@ -94,6 +94,6 @@ target no longer compile.
 
 | Name | Type | Description | Defined in |
 | ------ | ------ | ------ | ------ |
-| `kind` | `"alias"` | - | [types.ts:246](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L246) |
-| `targetField` | `string` | The canonical field this alias resolves to. Example: if `zone_name` is an alias for `zone_id`, then `targetField = 'zone_id'`. | [types.ts:252](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L252) |
-| `type` | [`FieldType`](FieldType.md) | - | [types.ts:247](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L247) |
+| `kind` | `"alias"` | - | [types.ts:252](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L252) |
+| `targetField` | `string` | The canonical field this alias resolves to. Example: if `zone_name` is an alias for `zone_id`, then `targetField = 'zone_id'`. | [types.ts:258](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L258) |
+| `type` | [`FieldType`](FieldType.md) | - | [types.ts:253](https://github.com/vectoral-io/lyra/blob/main/src/types.ts#L253) |
