@@ -61,12 +61,15 @@ export interface JSONDecodeOutput<T extends Record<string, unknown>> {
 export function encodeJSON<T extends Record<string, unknown>>(
   input: JSONEncodeInput<T>,
 ): LyraBundleJSON<T> {
-  const facetIndex: FacetPostingLists = {};
-  const facetIndexBin: FacetPostingListsBin = {};
+  // Null-prototype maps: field names and value keys are bundle-controlled and
+  // may be "__proto__" / "constructor"; keep them own data keys so encode is a
+  // faithful round-trip of the in-memory (already null-proto) index.
+  const facetIndex: FacetPostingLists = Object.create(null);
+  const facetIndexBin: FacetPostingListsBin = Object.create(null);
   for (const field in input.facetIndex) {
     const byValue = input.facetIndex[field];
-    const legacy: Record<string, number[]> = {};
-    const binary: Record<string, string> = {};
+    const legacy: Record<string, number[]> = Object.create(null);
+    const binary: Record<string, string> = Object.create(null);
     for (const valueKey in byValue) {
       const postings = byValue[valueKey];
       legacy[valueKey] = Array.from(postings);
@@ -76,15 +79,15 @@ export function encodeJSON<T extends Record<string, unknown>>(
     facetIndexBin[field] = binary;
   }
 
-  const nullIndex: NullPostingLists = {};
-  const nullIndexBin: NullPostingListsBin = {};
+  const nullIndex: NullPostingLists = Object.create(null);
+  const nullIndexBin: NullPostingListsBin = Object.create(null);
   for (const field in input.nullIndex) {
     const postings = input.nullIndex[field];
     nullIndex[field] = Array.from(postings);
     nullIndexBin[field] = deltaVarintEncode(postings);
   }
 
-  const rangeColumns: RangeColumnsJSON = {};
+  const rangeColumns: RangeColumnsJSON = Object.create(null);
   for (const field in input.rangeColumns) {
     rangeColumns[field] = { encoding: 'b64f64', data: f64ArrayToB64(input.rangeColumns[field]) };
   }
@@ -111,7 +114,7 @@ export function encodeJSON<T extends Record<string, unknown>>(
 export function decodeJSON<T extends Record<string, unknown>>(
   raw: LyraBundleJSON<T>,
 ): JSONDecodeOutput<T> {
-  if (!raw || !raw.manifest || !raw.items) {
+  if (!raw || !raw.manifest || !Array.isArray(raw.items)) {
     throw new Error('Invalid bundle JSON: missing manifest or items');
   }
 

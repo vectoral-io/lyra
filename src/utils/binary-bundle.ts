@@ -48,6 +48,7 @@ const MAGIC = 'LYRA4';
 const MAGIC_LEN = 5;
 const ALIGN = 8;
 const U32_BYTES = 4;
+const F64_BYTES = 8;
 const BITS_PER_BYTE = 8;
 
 const utf8Encoder = new TextEncoder();
@@ -272,8 +273,11 @@ function decodeItems<T extends Record<string, unknown>>(
   slot: ItemsSlot,
 ): V4ItemsInput<T> {
   if (slot.encoding === 'json') {
-    const rows = JSON.parse(utf8Decoder.decode(sliceBlob(bytes, bodyStart, slot))) as T[];
-    return { kind: 'rows', rows };
+    const parsed = JSON.parse(utf8Decoder.decode(sliceBlob(bytes, bodyStart, slot))) as unknown;
+    if (!Array.isArray(parsed)) {
+      throw new Error('Invalid v4 bundle: JSON items payload must be an array');
+    }
+    return { kind: 'rows', rows: parsed as T[] };
   }
   if (slot.encoding === 'columnar') {
     // `length` is an attacker-controlled integer that drives `new Uint32Array(length)`
@@ -320,6 +324,40 @@ function validateColumnarLength(bytes: Uint8Array, bodyStart: number, slot: Item
     throw new Error(
       `Invalid v4 bundle: columnar length ${slot.length} exceeds capacity implied by column data (${maxRows})`,
     );
+  }
+
+  // Beyond the null bitmap, each encoding's payload must be large enough to hold
+  // `length` rows, or a lazy read would silently return garbage past the slice.
+  for (const field of slot.fieldNames) {
+    assertColumnCapacity(field, slot.fields[field], slot.length);
+  }
+}
+
+/** Throw if `haveBytes` can't hold `needBytes` for a column's payload slot. */
+function assertSlotBytes(field: string, label: string, haveBytes: number, needBytes: number, rows: number): void {
+  if (haveBytes < needBytes) {
+    throw new Error(
+      `Invalid v4 bundle: column "${field}" ${label} slot has ${haveBytes} bytes, needs ${needBytes} for ${rows} rows`,
+    );
+  }
+}
+
+/** Reject a column whose encoding-specific payload can't back `rows` rows. */
+function assertColumnCapacity(field: string, fieldSlot: ColumnSlot, rows: number): void {
+  switch (fieldSlot.encoding) {
+    case 'utf8-dict':
+      assertSlotBytes(field, 'indices', fieldSlot.indices.len, rows * U32_BYTES, rows);
+      break;
+    case 'f64':
+      assertSlotBytes(field, 'data', fieldSlot.data.len, rows * F64_BYTES, rows);
+      break;
+    case 'u8-bool':
+      assertSlotBytes(field, 'data', fieldSlot.data.len, Math.ceil(rows / BITS_PER_BYTE), rows);
+      break;
+    case 'json-fallback':
+      // One offset per row plus a trailing end offset.
+      assertSlotBytes(field, 'jsonOffsets', fieldSlot.jsonOffsets.len, (rows + 1) * U32_BYTES, rows);
+      break;
   }
 }
 

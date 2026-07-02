@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createBundle, LyraBundle, type LyraBundleJSON } from '../src';
+import { f64ArrayToB64 } from '../src/utils/codec';
 
 // Behavior + robustness fixes from the elegance review. These pin semantics that
 // the differential property test can't reach: forked value-equality (notEqual),
@@ -87,6 +88,15 @@ describe('alias resolution fails closed for equal, open for notEqual', () => {
   });
 });
 
+describe('disposed bundles reject queries even on the unknown-field fast path', () => {
+  it('throws for an unknown-field-only query after dispose', async () => {
+    const bundle = await arrayFacetBundle();
+    bundle.dispose();
+    expect(() => bundle.query({ isNull: ['bogus'] })).toThrow(/disposed/);
+    expect(() => bundle.query({ equal: { tags: 'a' } })).toThrow(/disposed/);
+  });
+});
+
 describe('unknown-field queries fail closed uniformly', () => {
   async function bundle(): Promise<LyraBundle<Row>> {
     return arrayFacetBundle();
@@ -163,6 +173,38 @@ describe('load() rejects hostile bundles', () => {
     const json = await validJson();
     json.facetIndex.injected = { x: [0] };
     expect(() => LyraBundle.load<Row>(json)).toThrow(/not in capabilities/);
+  });
+
+  it('rejects a posting list that is not strictly increasing', async () => {
+    const json = await validJson();
+    const firstField = Object.keys(json.facetIndex)[0];
+    const firstKey = Object.keys(json.facetIndex[firstField])[0];
+    json.facetIndex[firstField][firstKey] = [1, 0]; // in range but descending
+    delete json.facetIndexBin;
+    expect(() => LyraBundle.load<Row>(json)).toThrow(/strictly increasing/);
+  });
+
+  it('rejects a non-array items payload', () => {
+    const bad = { manifest: {}, items: { length: 3 } } as unknown as LyraBundleJSON<Row>;
+    expect(() => LyraBundle.load<Row>(bad)).toThrow(/missing manifest or items/);
+  });
+
+  it('rejects a range column whose length does not match the item count', async () => {
+    interface RangeRow { id: string; score: number; [key: string]: unknown }
+    const bundle = await LyraBundle.create<RangeRow>(
+      [{ id: '1', score: 10 }, { id: '2', score: 20 }],
+      {
+        datasetId: 'ranges',
+        fields: {
+          id: { kind: 'id', type: 'string' },
+          score: { kind: 'range', type: 'number' },
+        },
+      },
+    );
+    const json = bundle.toJSON();
+    // Re-encode the score column with the wrong number of rows.
+    json.rangeColumns = { score: { encoding: 'b64f64', data: f64ArrayToB64(new Float64Array(5)) } };
+    expect(() => LyraBundle.load<RangeRow>(json)).toThrow(/does not match item count/);
   });
 
   it('rejects a columnar length that exceeds the column data (allocation bomb)', async () => {

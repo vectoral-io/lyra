@@ -196,6 +196,10 @@ export class LyraBundle<T extends Record<string, unknown>> {
    * - All operators are intersected (AND logic).
    */
   query(query: LyraQuery = {}): LyraResult<T> {
+    // Data operation: reject disposed bundles up front, before any fast path
+    // (an unknown-field-only query would otherwise short-circuit to a result
+    // without touching a disposed getter).
+    if (this.isDisposed) throw new Error('Cannot use a disposed LyraBundle');
     const normalized = normalizeQuery(query);
     // Unknown-field contract (uniform across operators): if any operator
     // references a field the manifest doesn't declare, the query matches
@@ -516,7 +520,13 @@ export class LyraBundle<T extends Record<string, unknown>> {
     }
 
     const decoded = decodeJSON<TItem>(raw);
-    validateDecodedBundle(decoded.manifest, decoded.items.length, decoded.facetIndex, decoded.nullIndex);
+    validateDecodedBundle(
+      decoded.manifest,
+      decoded.items.length,
+      decoded.facetIndex,
+      decoded.nullIndex,
+      decoded.rangeColumns,
+    );
 
     return new LyraBundle<TItem>(
       new RowItemStore(decoded.items),
@@ -544,7 +554,13 @@ export class LyraBundle<T extends Record<string, unknown>> {
     }
     const decoded = decodeV4<TItem>(bytes);
     const itemCount = decoded.items.kind === 'rows' ? decoded.items.rows.length : decoded.items.length;
-    validateDecodedBundle(decoded.manifest, itemCount, decoded.facetIndex, decoded.nullIndex);
+    validateDecodedBundle(
+      decoded.manifest,
+      itemCount,
+      decoded.facetIndex,
+      decoded.nullIndex,
+      decoded.rangeColumns,
+    );
 
     const itemStore: ItemStore<TItem> = decoded.items.kind === 'rows'
       ? new RowItemStore<TItem>(decoded.items.rows)

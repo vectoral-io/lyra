@@ -199,6 +199,7 @@ export function validateDecodedBundle(
   itemCount: number,
   facetIndex: InMemoryFacetIndex,
   nullIndex: InMemoryNullIndex,
+  rangeColumns: RangeColumns | null,
 ): void {
   validateManifest(manifest);
 
@@ -211,20 +212,50 @@ export function validateDecodedBundle(
     }
     const byValue = facetIndex[field];
     for (const valueKey of Object.keys(byValue)) {
-      assertPostingsInRange(byValue[valueKey], itemCount, `facetIndex["${field}"]["${valueKey}"]`);
+      assertValidPostings(byValue[valueKey], itemCount, `facetIndex["${field}"]["${valueKey}"]`);
     }
   }
 
   for (const field of Object.keys(nullIndex)) {
-    assertPostingsInRange(nullIndex[field], itemCount, `nullIndex["${field}"]`);
+    assertValidPostings(nullIndex[field], itemCount, `nullIndex["${field}"]`);
+  }
+
+  // Range columns are trusted as query storage: reject undeclared/non-range
+  // fields and any column whose length doesn't match the item count, else range
+  // queries read mismatched or out-of-bounds data.
+  if (rangeColumns) {
+    const declaredRanges = new Set(manifest.capabilities.ranges);
+    for (const field of Object.keys(rangeColumns)) {
+      if (!declaredRanges.has(field)) {
+        throw new Error(
+          `Invalid bundle: rangeColumns contains field "${field}" that is not in capabilities.ranges`,
+        );
+      }
+      if (rangeColumns[field].length !== itemCount) {
+        throw new Error(
+          `Invalid bundle: rangeColumns["${field}"] length ${rangeColumns[field].length} does not match item count ${itemCount}`,
+        );
+      }
+    }
   }
 }
 
-function assertPostingsInRange(postings: Uint32Array, itemCount: number, context: string): void {
+/**
+ * A posting list must be in `[0, itemCount)` and strictly increasing — the query
+ * primitives (intersect/union/difference) assume sorted, deduplicated sources,
+ * so an out-of-order or duplicated legacy list (e.g. `[2, 0]` or `[1, 1]`) would
+ * silently produce wrong intersections and counts.
+ */
+function assertValidPostings(postings: Uint32Array, itemCount: number, context: string): void {
   for (let i = 0; i < postings.length; i++) {
     if (postings[i] >= itemCount) {
       throw new Error(
         `Invalid bundle: ${context} posting index ${postings[i]} out of range [0, ${itemCount})`,
+      );
+    }
+    if (i > 0 && postings[i] <= postings[i - 1]) {
+      throw new Error(
+        `Invalid bundle: ${context} postings must be strictly increasing (got ${postings[i - 1]} then ${postings[i]})`,
       );
     }
   }
@@ -407,7 +438,8 @@ export function buildLookupTablesFromData<T>(
   items: T[],
   aliases: Record<string, string>,
 ): Record<string, LookupTable> {
-  const lookups: Record<string, LookupTable> = {};
+  // Null-prototype: an alias field named "__proto__" must not corrupt the container.
+  const lookups: Record<string, LookupTable> = Object.create(null);
 
   for (const [aliasField, targetField] of Object.entries(aliases)) {
     // Null-prototype maps: alias/target values are item data and may stringify to
