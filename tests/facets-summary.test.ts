@@ -259,12 +259,14 @@ describe('getFacetSummary', () => {
     // Get summary without filters
     const globalSummary = bundle.getFacetSummary('status');
 
-    // Apply a date range filter
-    const now = Date.now();
-    const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+    // Apply a date range filter over the later half of the data's own span, so
+    // the window is a real subset regardless of the (seeded, fixed) fixture dates.
+    const createdTimes = tickets.map((t) => Date.parse(t.createdAt)).sort((a, b) => a - b);
+    const midpoint = createdTimes[Math.floor(createdTimes.length / 2)];
+    const maxTime = createdTimes[createdTimes.length - 1];
     const filteredSummary = bundle.getFacetSummary('status', {
       ranges: {
-        createdAt: { min: oneWeekAgo, max: now },
+        createdAt: { min: midpoint, max: maxTime },
       },
     });
 
@@ -286,13 +288,19 @@ describe('getFacetSummary', () => {
     const bundle = await LyraBundle.create<Ticket>(tickets, config);
 
     const sampleCustomer = tickets[0].customerId;
-    const now = Date.now();
-    const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+    // Span the sample customer's own createdAt range so the combined filter is
+    // guaranteed to match its tickets (deterministic under the seeded fixture).
+    const customerTimes = tickets
+      .filter((t) => t.customerId === sampleCustomer)
+      .map((t) => Date.parse(t.createdAt))
+      .sort((a, b) => a - b);
+    const minTime = customerTimes[0];
+    const maxTime = customerTimes[customerTimes.length - 1];
 
     const summary = bundle.getFacetSummary('status', {
       equal: { customerId: sampleCustomer },
       ranges: {
-        createdAt: { min: oneWeekAgo, max: now },
+        createdAt: { min: minTime, max: maxTime },
       },
     });
 
@@ -303,7 +311,7 @@ describe('getFacetSummary', () => {
     const queryResult = bundle.query({
       equal: { customerId: sampleCustomer },
       ranges: {
-        createdAt: { min: oneWeekAgo, max: now },
+        createdAt: { min: minTime, max: maxTime },
       },
       includeFacetCounts: true,
       limit: 0,

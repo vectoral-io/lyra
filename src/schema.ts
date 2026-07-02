@@ -8,6 +8,21 @@ import type { LyraManifest } from './types';
  */
 export type JsonSchema = { [key: string]: unknown };
 
+/**
+ * Schema fragment for a filter value that accepts a scalar of `baseType`, an
+ * explicit `null` (normalized to isNull/isNotNull), or an array of either (IN
+ * semantics). Shared by the facet and alias property builders.
+ */
+function scalarOrArraySchema(baseType: string): JsonSchema {
+  return {
+    anyOf: [
+      { type: baseType },
+      { type: 'null' },
+      { type: 'array', items: { anyOf: [{ type: baseType }, { type: 'null' }] } },
+    ],
+  };
+}
+
 // Implementation
 // ==============================
 
@@ -39,47 +54,21 @@ export function buildQuerySchema(manifest: LyraManifest): JsonSchema {
     const field = fieldMap.get(fieldName);
     if (!field) continue;
 
-    let baseType: string;
-    if (field.type === 'number') {
-      baseType = 'number';
-    }
-    else if (field.type === 'boolean') {
-      baseType = 'boolean';
-    }
-    else {
-      baseType = 'string';
-    }
-
-    // Support scalar or array (IN semantics)
-    const scalarOrArraySchema = {
-      anyOf: [
-        { type: baseType },
-        { type: 'null' }, // null normalized to isNull
-        { type: 'array', items: { anyOf: [{ type: baseType }, { type: 'null' }] } },
-      ],
-    };
-
-    equalProperties[fieldName] = scalarOrArraySchema;
-    notEqualProperties[fieldName] = scalarOrArraySchema;
+    const baseType = field.type === 'number' || field.type === 'boolean' ? field.type : 'string';
+    const schema = scalarOrArraySchema(baseType);
+    equalProperties[fieldName] = schema;
+    notEqualProperties[fieldName] = schema;
   }
 
-  // Include alias fields (v2)
+  // Include alias fields (v2) — aliases are always strings (human-readable names)
   if (manifest.capabilities.aliases) {
     for (const aliasFieldName of manifest.capabilities.aliases) {
       const aliasField = fieldMap.get(aliasFieldName);
       if (!aliasField || aliasField.kind !== 'alias') continue;
 
-      // Aliases are always strings (human-readable names)
-      const scalarOrArraySchema = {
-        anyOf: [
-          { type: 'string' },
-          { type: 'null' }, // null normalized to isNull/isNotNull
-          { type: 'array', items: { anyOf: [{ type: 'string' }, { type: 'null' }] } },
-        ],
-      };
-
-      equalProperties[aliasFieldName] = scalarOrArraySchema;
-      notEqualProperties[aliasFieldName] = scalarOrArraySchema;
+      const schema = scalarOrArraySchema('string');
+      equalProperties[aliasFieldName] = schema;
+      notEqualProperties[aliasFieldName] = schema;
     }
   }
 

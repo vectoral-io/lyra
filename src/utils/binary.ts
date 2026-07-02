@@ -14,6 +14,21 @@ const F64_BYTES = 8;
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
+/**
+ * Copy `chunks` back-to-back into one `Uint8Array` of length `total` (which must
+ * equal the sum of the chunk lengths). The shared "accumulate chunks, then
+ * concatenate once" idiom used by the writer and the columnar encoders.
+ */
+export function concatChunks(chunks: Uint8Array[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, off);
+    off += chunk.length;
+  }
+  return out;
+}
+
 export class BinaryWriter {
   private readonly chunks: Uint8Array[] = [];
   private size = 0;
@@ -56,13 +71,7 @@ export class BinaryWriter {
   }
 
   finalize(): Uint8Array {
-    const out = new Uint8Array(this.size);
-    let off = 0;
-    for (const chunk of this.chunks) {
-      out.set(chunk, off);
-      off += chunk.length;
-    }
-    return out;
+    return concatChunks(this.chunks, this.size);
   }
 }
 
@@ -73,10 +82,6 @@ export class BinaryReader {
 
   get cursor(): number {
     return this.off;
-  }
-
-  get length(): number {
-    return this.bytes.length;
   }
 
   seek(offset: number): void {

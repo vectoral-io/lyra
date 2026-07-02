@@ -1,6 +1,7 @@
 import type { RangeBound, Scalar } from '../types';
 import type { SortedSource } from '../utils/array-operations';
 import * as arrayOps from '../utils/array-operations';
+import { encodeFacetKey } from './facet-key';
 import type { ItemStore } from '../utils/item-store';
 
 /**
@@ -110,8 +111,12 @@ export function filterByNullChecks<T extends Record<string, unknown>>(
 /**
  * Exclude items whose value in any `excludes` field matches.
  *
- * notEqual applies only to non-null item values (null-handling goes through
- * isNull/isNotNull). Writes to `target`, returns number written.
+ * The exact inverse of `equal`: matching is decided by the facet-key codec
+ * (`encodeFacetKey`), not raw `===`, so `notEqual` excludes the same items
+ * `equal` would include — including cross-type keys (numeric `5` vs `'5'`) and
+ * every element of an array-valued facet. notEqual applies only to non-null
+ * item values (null-handling goes through isNull/isNotNull). Writes to
+ * `target`, returns number written.
  *
  * @internal
  */
@@ -127,10 +132,12 @@ export function filterByExclusions<T extends Record<string, unknown>>(
     return copyThrough(indices, indicesLen, target);
   }
 
-  // Hoist value-array shape outside the inner loop.
-  const fieldValues: { field: string; values: Scalar[] }[] = excludeFields.map((field) => {
+  // Hoist each field's excluded keys into a Set of encoded facet keys, so the
+  // inner loop is an O(1) membership test against the same key space `equal` uses.
+  const fieldKeys: { field: string; keys: Set<string> }[] = excludeFields.map((field) => {
     const value = excludes[field];
-    return { field, values: Array.isArray(value) ? value : [value] };
+    const values = Array.isArray(value) ? value : [value];
+    return { field, keys: new Set(values.map(encodeFacetKey)) };
   });
 
   let writeIndex = 0;
@@ -138,10 +145,13 @@ export function filterByExclusions<T extends Record<string, unknown>>(
     const idx = indices[i];
     let excluded = false;
 
-    for (const { field, values } of fieldValues) {
+    for (const { field, keys } of fieldKeys) {
       const itemValue = itemStore.getField(idx, field);
       if (itemValue === null || itemValue === undefined) continue;
-      if (values.includes(itemValue as Scalar)) {
+      const matches = Array.isArray(itemValue)
+        ? itemValue.some((element) => keys.has(encodeFacetKey(element)))
+        : keys.has(encodeFacetKey(itemValue));
+      if (matches) {
         excluded = true; break;
       }
     }

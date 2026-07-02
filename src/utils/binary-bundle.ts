@@ -35,11 +35,10 @@ import type {
   LyraManifest,
   RangeColumns,
 } from '../types';
-import { BinaryReader, BinaryWriter } from './binary';
+import { BinaryReader, BinaryWriter, concatChunks } from './binary';
 import { deltaVarintDecodeBytes, deltaVarintEncodeBytes } from './codec';
 import {
   type Column,
-  type ColumnEncoding,
   type ColumnLoader,
   ColumnarItemStore,
   encodeColumns,
@@ -49,13 +48,15 @@ const MAGIC = 'LYRA4';
 const MAGIC_LEN = 5;
 const ALIGN = 8;
 const U32_BYTES = 4;
+const F64_BYTES = 8;
+const BITS_PER_BYTE = 8;
 
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
-interface FacetSlot { off: number; len: number }
-interface NullSlot { off: number; len: number }
-interface RangeSlot { off: number; len: number; dtype: 'f64' }
+/** A byte range in the body: offset (body-relative) and length. */
+interface Slot { off: number; len: number }
+interface RangeSlot extends Slot { dtype: 'f64' }
 
 interface ItemsSlotJson { encoding: 'json'; off: number; len: number }
 interface ItemsSlotColumnar {
@@ -66,28 +67,22 @@ interface ItemsSlotColumnar {
 }
 type ItemsSlot = ItemsSlotJson | ItemsSlotColumnar;
 
-interface ColumnSlot {
-  encoding: ColumnEncoding;
-  /** null bitmap byte slot */
-  nullBitmap: { off: number; len: number };
-  /** utf8-dict only */
-  dict?: { off: number; len: number; count: number; offsets: { off: number; len: number } };
-  /** utf8-dict only */
-  indices?: { off: number; len: number };
-  /** f64 / u8-bool only */
-  data?: { off: number; len: number };
-  /** json-fallback only */
-  jsonOffsets?: { off: number; len: number };
-  /** json-fallback only */
-  jsonBytes?: { off: number; len: number };
-}
+/**
+ * Per-column byte-range table, discriminated on `encoding` so each variant
+ * carries exactly the slots its encoding needs (mirrors `Column`).
+ */
+type ColumnSlot =
+  | { encoding: 'utf8-dict'; nullBitmap: Slot; dict: Slot & { count: number; offsets: Slot }; indices: Slot }
+  | { encoding: 'f64'; nullBitmap: Slot; data: Slot }
+  | { encoding: 'u8-bool'; nullBitmap: Slot; data: Slot }
+  | { encoding: 'json-fallback'; nullBitmap: Slot; jsonOffsets: Slot; jsonBytes: Slot };
 
 interface V4Header {
   manifest: LyraManifest;
   blocks: {
     items: ItemsSlot;
-    facetIndex: Record<string, Record<string, FacetSlot>>;
-    nullIndex: Record<string, NullSlot>;
+    facetIndex: Record<string, Record<string, Slot>>;
+    nullIndex: Record<string, Slot>;
     rangeColumns: Record<string, RangeSlot>;
   };
 }
@@ -102,19 +97,9 @@ export type V4ItemsInput<T extends Record<string, unknown>> =
   | { kind: 'rows'; rows: T[] }
   | { kind: 'columnar'; loadColumn: ColumnLoader; fieldNames: string[]; length: number };
 
-export type V4ItemsOutput<T extends Record<string, unknown>> = V4ItemsInput<T>;
-
 export interface V4Payload<T extends Record<string, unknown>> {
   manifest: LyraManifest;
   items: V4ItemsInput<T>;
-  facetIndex: InMemoryFacetIndex;
-  nullIndex: InMemoryNullIndex;
-  rangeColumns: RangeColumns;
-}
-
-export interface V4DecodedBundle<T extends Record<string, unknown>> {
-  manifest: LyraManifest;
-  items: V4ItemsOutput<T>;
   facetIndex: InMemoryFacetIndex;
   nullIndex: InMemoryNullIndex;
   rangeColumns: RangeColumns;
@@ -157,10 +142,10 @@ export function encodeV4<T extends Record<string, unknown>>(
     itemsSlot = writeColumnarItems(body, columnar);
   }
 
-  const facetIndex: Record<string, Record<string, FacetSlot>> = {};
+  const facetIndex: Record<string, Record<string, Slot>> = {};
   for (const field of Object.keys(payload.facetIndex)) {
     const byValue = payload.facetIndex[field];
-    const out: Record<string, FacetSlot> = {};
+    const out: Record<string, Slot> = {};
     for (const valueKey of Object.keys(byValue)) {
       const bytes = deltaVarintEncodeBytes(byValue[valueKey]);
       const off = body.cursor;
@@ -170,7 +155,7 @@ export function encodeV4<T extends Record<string, unknown>>(
     facetIndex[field] = out;
   }
 
-  const nullIndex: Record<string, NullSlot> = {};
+  const nullIndex: Record<string, Slot> = {};
   for (const field of Object.keys(payload.nullIndex)) {
     const bytes = deltaVarintEncodeBytes(payload.nullIndex[field]);
     const off = body.cursor;
@@ -211,7 +196,7 @@ export function encodeV4<T extends Record<string, unknown>>(
   return writer.finalize();
 }
 
-export function decodeV4<T extends Record<string, unknown>>(bytes: Uint8Array): V4DecodedBundle<T> {
+export function decodeV4<T extends Record<string, unknown>>(bytes: Uint8Array): V4Payload<T> {
   if (!isV4Bundle(bytes)) {
     throw new Error('Invalid v4 bundle: magic mismatch (expected "LYRA4")');
   }
@@ -286,12 +271,19 @@ function decodeItems<T extends Record<string, unknown>>(
   bytes: Uint8Array,
   bodyStart: number,
   slot: ItemsSlot,
-): V4ItemsOutput<T> {
+): V4ItemsInput<T> {
   if (slot.encoding === 'json') {
-    const rows = JSON.parse(utf8Decoder.decode(sliceBlob(bytes, bodyStart, slot))) as T[];
-    return { kind: 'rows', rows };
+    const parsed = JSON.parse(utf8Decoder.decode(sliceBlob(bytes, bodyStart, slot))) as unknown;
+    if (!Array.isArray(parsed)) {
+      throw new Error('Invalid v4 bundle: JSON items payload must be an array');
+    }
+    return { kind: 'rows', rows: parsed as T[] };
   }
   if (slot.encoding === 'columnar') {
+    // `length` is an attacker-controlled integer that drives `new Uint32Array(length)`
+    // allocations (allIndices + scratch buffers) on first query. Validate it against
+    // the actual column bytes so a tiny header can't claim billions of rows and OOM.
+    validateColumnarLength(bytes, bodyStart, slot);
     // Lazy: hand back a loader that decodes a single column on first touch.
     // The buffer is retained by the closure; only columns actually read get
     // materialized into `Column`s.
@@ -303,6 +295,70 @@ function decodeItems<T extends Record<string, unknown>>(
     };
   }
   throw new Error(`Invalid v4 bundle: unsupported items encoding "${(slot as { encoding: string }).encoding}"`);
+}
+
+/**
+ * Reject a columnar `length` that can't be backed by the column data present in
+ * the buffer. Every column carries a null bitmap of `ceil(length / 8)` bytes, so
+ * `nullBitmap.len * 8` is an upper bound on the rows a column can describe; the
+ * true row count can't exceed the smallest such bound. With no columns, fall
+ * back to the buffer length as a coarse ceiling (no encoding packs more than one
+ * row per byte across the whole buffer). This is what stops an allocation bomb:
+ * a 30-byte header claiming 2^30 rows fails here instead of at `new Uint32Array`.
+ */
+function validateColumnarLength(bytes: Uint8Array, bodyStart: number, slot: ItemsSlotColumnar): void {
+  if (!Number.isInteger(slot.length) || slot.length < 0) {
+    throw new Error(`Invalid v4 bundle: columnar items length ${slot.length} is not a valid row count`);
+  }
+  let maxRows = bytes.length;
+  for (const field of slot.fieldNames) {
+    const fieldSlot = slot.fields[field];
+    if (!fieldSlot) {
+      throw new Error(`Invalid v4 bundle: columnar items missing field "${field}"`);
+    }
+    checkSlot(fieldSlot.nullBitmap, bodyStart, bytes.length);
+    const rowsFromBitmap = fieldSlot.nullBitmap.len * BITS_PER_BYTE;
+    if (rowsFromBitmap < maxRows) maxRows = rowsFromBitmap;
+  }
+  if (slot.length > maxRows) {
+    throw new Error(
+      `Invalid v4 bundle: columnar length ${slot.length} exceeds capacity implied by column data (${maxRows})`,
+    );
+  }
+
+  // Beyond the null bitmap, each encoding's payload must be large enough to hold
+  // `length` rows, or a lazy read would silently return garbage past the slice.
+  for (const field of slot.fieldNames) {
+    assertColumnCapacity(field, slot.fields[field], slot.length);
+  }
+}
+
+/** Throw if `haveBytes` can't hold `needBytes` for a column's payload slot. */
+function assertSlotBytes(field: string, label: string, haveBytes: number, needBytes: number, rows: number): void {
+  if (haveBytes < needBytes) {
+    throw new Error(
+      `Invalid v4 bundle: column "${field}" ${label} slot has ${haveBytes} bytes, needs ${needBytes} for ${rows} rows`,
+    );
+  }
+}
+
+/** Reject a column whose encoding-specific payload can't back `rows` rows. */
+function assertColumnCapacity(field: string, fieldSlot: ColumnSlot, rows: number): void {
+  switch (fieldSlot.encoding) {
+    case 'utf8-dict':
+      assertSlotBytes(field, 'indices', fieldSlot.indices.len, rows * U32_BYTES, rows);
+      break;
+    case 'f64':
+      assertSlotBytes(field, 'data', fieldSlot.data.len, rows * F64_BYTES, rows);
+      break;
+    case 'u8-bool':
+      assertSlotBytes(field, 'data', fieldSlot.data.len, Math.ceil(rows / BITS_PER_BYTE), rows);
+      break;
+    case 'json-fallback':
+      // One offset per row plus a trailing end offset.
+      assertSlotBytes(field, 'jsonOffsets', fieldSlot.jsonOffsets.len, (rows + 1) * U32_BYTES, rows);
+      break;
+  }
 }
 
 /**
@@ -350,55 +406,39 @@ function rowsToColumnarSource<T extends Record<string, unknown>>(
 }
 
 function writeColumn(body: BinaryWriter, col: Column): ColumnSlot {
-  const slot: ColumnSlot = {
-    encoding: col.encoding,
-    nullBitmap: writeBlob(body, col.nullBitmap),
-  };
+  const nullBitmap = writeBlob(body, col.nullBitmap);
 
   switch (col.encoding) {
     case 'utf8-dict': {
-      if (!col.dict || !col.indices) throw new Error('Invariant: utf8-dict column missing dict/indices');
       // Encode dictionary as concat of UTF-8 strings + parallel offset table.
       const encoded = encodeStringTable(col.dict);
-      slot.dict = {
-        off: 0, // filled below after writes
-        len: 0,
-        count: col.dict.length,
-        offsets: { off: 0, len: 0 },
-      };
-      slot.dict.offsets = writeBlob(body, encoded.offsets);
+      const offsets = writeBlob(body, encoded.offsets);
       const dictBlob = writeBlob(body, encoded.bytes);
-      slot.dict.off = dictBlob.off;
-      slot.dict.len = dictBlob.len;
       // Indices: raw u32 LE; align to 4 for cleaner layout (we copy on read).
       const indicesBytes = new Uint8Array(col.indices.buffer, col.indices.byteOffset, col.indices.byteLength);
-      slot.indices = writeBlob(body, indicesBytes);
-      break;
+      const indices = writeBlob(body, indicesBytes);
+      return {
+        encoding: 'utf8-dict',
+        nullBitmap,
+        dict: { off: dictBlob.off, len: dictBlob.len, count: col.dict.length, offsets },
+        indices,
+      };
     }
     case 'f64': {
-      if (!col.data) throw new Error('Invariant: f64 column missing data');
       body.align(ALIGN);
-      const data = col.data as Float64Array;
       const off = body.cursor;
-      body.writeF64Bytes(data);
-      slot.data = { off, len: data.byteLength };
-      break;
+      body.writeF64Bytes(col.data);
+      return { encoding: 'f64', nullBitmap, data: { off, len: col.data.byteLength } };
     }
-    case 'u8-bool': {
-      if (!col.data) throw new Error('Invariant: u8-bool column missing data');
-      slot.data = writeBlob(body, col.data as Uint8Array);
-      break;
-    }
+    case 'u8-bool':
+      return { encoding: 'u8-bool', nullBitmap, data: writeBlob(body, col.data) };
     case 'json-fallback': {
-      if (!col.jsonOffsets || !col.jsonBytes) throw new Error('Invariant: json-fallback column missing payload');
       const offsetsBytes = new Uint8Array(col.jsonOffsets.buffer, col.jsonOffsets.byteOffset, col.jsonOffsets.byteLength);
-      slot.jsonOffsets = writeBlob(body, offsetsBytes);
-      slot.jsonBytes = writeBlob(body, col.jsonBytes);
-      break;
+      const jsonOffsets = writeBlob(body, offsetsBytes);
+      const jsonBytes = writeBlob(body, col.jsonBytes);
+      return { encoding: 'json-fallback', nullBitmap, jsonOffsets, jsonBytes };
     }
   }
-
-  return slot;
 }
 
 function readColumn(bytes: Uint8Array, bodyStart: number, slot: ColumnSlot): Column {
@@ -406,9 +446,6 @@ function readColumn(bytes: Uint8Array, bodyStart: number, slot: ColumnSlot): Col
 
   switch (slot.encoding) {
     case 'utf8-dict': {
-      if (!slot.dict || !slot.indices) {
-        throw new Error('Invalid v4 bundle: utf8-dict column missing dict/indices slots');
-      }
       const offsetsBytes = sliceBlob(bytes, bodyStart, slot.dict.offsets);
       const dictBytes = sliceBlob(bytes, bodyStart, slot.dict);
       const dict = decodeStringTable(offsetsBytes, dictBytes, slot.dict.count);
@@ -418,20 +455,14 @@ function readColumn(bytes: Uint8Array, bodyStart: number, slot: ColumnSlot): Col
       return { encoding: 'utf8-dict', nullBitmap, dict, indices: indicesCopy };
     }
     case 'f64': {
-      if (!slot.data) throw new Error('Invalid v4 bundle: f64 column missing data slot');
       checkSlot(slot.data, bodyStart, bytes.length);
       const reader = new BinaryReader(bytes);
       const data = reader.readF64View(bodyStart + slot.data.off, slot.data.len);
       return { encoding: 'f64', nullBitmap, data };
     }
-    case 'u8-bool': {
-      if (!slot.data) throw new Error('Invalid v4 bundle: u8-bool column missing data slot');
+    case 'u8-bool':
       return { encoding: 'u8-bool', nullBitmap, data: sliceBlob(bytes, bodyStart, slot.data) };
-    }
     case 'json-fallback': {
-      if (!slot.jsonOffsets || !slot.jsonBytes) {
-        throw new Error('Invalid v4 bundle: json-fallback column missing slots');
-      }
       const offsetsBytes = sliceBlob(bytes, bodyStart, slot.jsonOffsets);
       const offsetsCopy = new Uint32Array(offsetsBytes.byteLength / U32_BYTES);
       new Uint8Array(offsetsCopy.buffer).set(offsetsBytes);
@@ -445,7 +476,7 @@ function readColumn(bytes: Uint8Array, bodyStart: number, slot: ColumnSlot): Col
 
 // ---- Helpers ----
 
-function writeBlob(body: BinaryWriter, bytes: Uint8Array): { off: number; len: number } {
+function writeBlob(body: BinaryWriter, bytes: Uint8Array): Slot {
   const off = body.cursor;
   body.writeBytes(bytes);
   return { off, len: bytes.length };
@@ -490,12 +521,7 @@ function encodeStringTable(strings: string[]): { offsets: Uint8Array; bytes: Uin
     total += enc.length;
   }
   offsets[strings.length] = total;
-  const bytes = new Uint8Array(total);
-  let off = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, off);
-    off += chunk.length;
-  }
+  const bytes = concatChunks(chunks, total);
   return { offsets: new Uint8Array(offsets.buffer, offsets.byteOffset, offsets.byteLength), bytes };
 }
 

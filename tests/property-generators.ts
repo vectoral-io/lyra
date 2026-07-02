@@ -205,7 +205,22 @@ function rangeFilterArb(rangeFields: string[]): fc.Arbitrary<Record<string, { mi
 }
 
 /**
- * Generate a random query.
+ * Generate a list of field names for null checks (isNull / isNotNull). Any
+ * declared field is null-checkable, so draw from the full field set.
+ */
+function nullCheckArb(fields: string[]): fc.Arbitrary<string[]> {
+  if (fields.length === 0) return fc.constant([]);
+  return fc.array(fc.constantFrom(...fields), {
+    minLength: 0,
+    maxLength: Math.min(fields.length, 3),
+  });
+}
+
+/**
+ * Generate a random query. Exercises every operator the naive oracle models —
+ * equal (incl. IN), notEqual, isNull/isNotNull, ranges, pagination — so the
+ * differential property test covers the scratch-buffer exclusion and null-check
+ * stages, not just equal + ranges.
  */
 export function queryArb(config: CreateBundleConfig<Record<string, unknown>>): fc.Arbitrary<LyraQuery> {
   const facetFields = Object.entries(config.fields)
@@ -216,8 +231,14 @@ export function queryArb(config: CreateBundleConfig<Record<string, unknown>>): f
     .filter(([, fieldConfig]) => fieldConfig.kind === 'range')
     .map(([fieldName]) => fieldName);
 
+  const allFields = Object.keys(config.fields);
+
   return fc.record({
     equal: facetFilterArb(facetFields),
+    // notEqual is oracle-modeled only on facet fields, so draw from those.
+    notEqual: facetFilterArb(facetFields),
+    isNull: nullCheckArb(allFields),
+    isNotNull: nullCheckArb(allFields),
     ranges: rangeFilterArb(rangeFields),
     limit: fc.option(fc.integer({ min: 0, max: 1000 })),
     offset: fc.option(fc.integer({ min: 0, max: 1000 })),

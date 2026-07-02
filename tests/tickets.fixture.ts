@@ -68,8 +68,32 @@ const TAG_POOL = [
 // Utils
 // ==============================
 
-function weightedRandom<T>(items: readonly T[], weights: number[]): T {
-  const randomValue = Math.random();
+/**
+ * Default seed and date window for the fixture. Fixed so `generateTicketArray(n)`
+ * yields byte-identical tickets every run — a failing test reproduces exactly,
+ * and assertions can pin exact counts. Pass a different `seed` for variety.
+ */
+const DEFAULT_SEED = 0x5eed_1a9a;
+const DEFAULT_START_DATE = new Date('2025-01-01T00:00:00.000Z');
+const DEFAULT_END_DATE = new Date('2025-12-31T23:59:59.999Z');
+
+type Rng = () => number;
+
+// Mulberry32 — small, fast, deterministic PRNG. Same seed => same sequence.
+// (Shared shape with tests/bench/realworld-fixture.ts.)
+function makePrng(seed: number): Rng {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function weightedRandom<T>(rng: Rng, items: readonly T[], weights: number[]): T {
+  const randomValue = rng();
   let cumulativeWeight = 0;
 
   for (let index = 0; index < items.length; index++) {
@@ -82,18 +106,18 @@ function weightedRandom<T>(items: readonly T[], weights: number[]): T {
   return items[items.length - 1];
 }
 
-function randomChoice<T>(items: readonly T[]): T {
-  return items[Math.floor(Math.random() * items.length)];
+function randomChoice<T>(rng: Rng, items: readonly T[]): T {
+  return items[Math.floor(rng() * items.length)];
 }
 
-function randomInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+function randomInt(rng: Rng, min: number, max: number): number {
+  return Math.floor(rng() * (max - min + 1)) + min;
 }
 
-function randomDate(startDate: Date, endDate: Date): Date {
+function randomDate(rng: Rng, startDate: Date, endDate: Date): Date {
   const startTime = startDate.getTime();
   const endTime = endDate.getTime();
-  const randomTime = startTime + Math.random() * (endTime - startTime);
+  const randomTime = startTime + rng() * (endTime - startTime);
   return new Date(randomTime);
 }
 
@@ -101,13 +125,13 @@ function formatISODate(date: Date): string {
   return date.toISOString();
 }
 
-function randomTags(): string[] {
-  const tagCount = randomInt(1, 3);
+function randomTags(rng: Rng): string[] {
+  const tagCount = randomInt(rng, 1, 3);
   const selectedTags: string[] = [];
   const availableTags = [...TAG_POOL];
 
   for (let index = 0; index < tagCount; index++) {
-    const randomIndex = Math.floor(Math.random() * availableTags.length);
+    const randomIndex = Math.floor(rng() * availableTags.length);
     selectedTags.push(availableTags.splice(randomIndex, 1)[0]);
   }
 
@@ -123,28 +147,31 @@ function randomTags(): string[] {
  *
  * @param count - Number of tickets to generate
  * @param startId - Starting ticket ID number (default: 1001)
- * @param startDate - Start date for ticket creation (default: 30 days ago)
- * @param endDate - End date for ticket creation (default: now)
+ * @param startDate - Start date for ticket creation (default: fixed 2025-01-01)
+ * @param endDate - End date for ticket creation (default: fixed 2025-12-31)
+ * @param seed - PRNG seed; same seed yields identical tickets (default: fixed)
  * @yields {Ticket} Generated ticket items
  */
 export function* generateTickets(
   count: number,
   startId: number = 1001,
-  startDate: Date = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-  endDate: Date = new Date(),
+  startDate: Date = DEFAULT_START_DATE,
+  endDate: Date = DEFAULT_END_DATE,
+  seed: number = DEFAULT_SEED,
 ): Generator<Ticket, void, unknown> {
+  const rng = makePrng(seed);
   for (let ticketNumber = 0; ticketNumber < count; ticketNumber++) {
-    const customer = randomChoice(CUSTOMERS);
-    const priority = weightedRandom(PRIORITIES, PRIORITY_WEIGHTS);
-    const status = randomChoice(STATUSES);
-    const productArea = randomChoice(PRODUCT_AREAS);
-    const region = randomChoice(REGIONS);
-    const ownerTeam = randomChoice(OWNER_TEAMS);
-    const isEscalated = Math.random() < 0.3;
-    const slaHours = randomChoice(SLA_HOURS);
+    const customer = randomChoice(rng, CUSTOMERS);
+    const priority = weightedRandom(rng, PRIORITIES, PRIORITY_WEIGHTS);
+    const status = randomChoice(rng, STATUSES);
+    const productArea = randomChoice(rng, PRODUCT_AREAS);
+    const region = randomChoice(rng, REGIONS);
+    const ownerTeam = randomChoice(rng, OWNER_TEAMS);
+    const isEscalated = rng() < 0.3;
+    const slaHours = randomChoice(rng, SLA_HOURS);
 
-    const createdAt = randomDate(startDate, endDate);
-    const updatedAt = randomDate(createdAt, endDate);
+    const createdAt = randomDate(rng, startDate, endDate);
+    const updatedAt = randomDate(rng, createdAt, endDate);
 
     yield {
       id: `T-${startId + ticketNumber}`,
@@ -159,7 +186,7 @@ export function* generateTickets(
       createdAt: formatISODate(createdAt),
       updatedAt: formatISODate(updatedAt),
       slaHours,
-      tags: randomTags(),
+      tags: randomTags(rng),
     };
   }
 }
@@ -179,8 +206,9 @@ export function generateTicketArray(
   startId: number = 1001,
   startDate?: Date,
   endDate?: Date,
+  seed?: number,
 ): Ticket[] {
-  return Array.from(generateTickets(count, startId, startDate, endDate));
+  return Array.from(generateTickets(count, startId, startDate, endDate, seed));
 }
 
 // Backward compatibility: provide a default fixture for existing tests
