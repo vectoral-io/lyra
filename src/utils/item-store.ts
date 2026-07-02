@@ -11,6 +11,8 @@
  * @internal
  */
 
+import { concatChunks } from './binary';
+
 // Packed-bit helpers. A "bitmap" here is a Uint8Array where each bit at index
 // `i` lives in byte `i >>> BIT_INDEX_SHIFT`, position `i & BIT_INDEX_MASK`.
 const BIT_INDEX_SHIFT = 3;
@@ -33,8 +35,6 @@ export interface ItemStore<T extends Record<string, unknown>> {
   readonly length: number;
   /** Read a single field's value at row `idx`. Returns `undefined` if absent or null. */
   getField(idx: number, field: string): unknown;
-  /** Reconstruct a full row object. Used at result boundary + serialization. */
-  materializeRow(idx: number): T;
   /** Materialize the full row collection. Used by `toJSON` / `serialize('binary')`. */
   materializeAll(): T[];
   /**
@@ -56,10 +56,6 @@ export class RowItemStore<T extends Record<string, unknown>> implements ItemStor
     return (this.rows[idx] as Record<string, unknown>)[field];
   }
 
-  materializeRow(idx: number): T {
-    return this.rows[idx];
-  }
-
   materializeAll(): T[] {
     return this.rows;
   }
@@ -76,6 +72,21 @@ export class RowItemStore<T extends Record<string, unknown>> implements ItemStor
 }
 
 /**
+ * Assign a field as an own data property. A field named `__proto__` (which can
+ * arrive via an untrusted `select` list or bundle field names) would otherwise
+ * set the object's prototype instead of a data key; `defineProperty` keeps it a
+ * plain own property, so projection can't be steered into prototype pollution.
+ */
+function assignField(out: Record<string, unknown>, field: string, value: unknown): void {
+  if (field === '__proto__') {
+    Object.defineProperty(out, field, { value, enumerable: true, writable: true, configurable: true });
+  }
+  else {
+    out[field] = value;
+  }
+}
+
+/**
  * Build a shallow copy of `row` limited to `fields`. Mirrors `ColumnarItemStore`
  * projection semantics: only present, non-`undefined` values are copied.
  */
@@ -83,7 +94,7 @@ function projectRow<T extends Record<string, unknown>>(row: T, fields: string[])
   const out: Record<string, unknown> = {};
   for (const field of fields) {
     const value = (row as Record<string, unknown>)[field];
-    if (value !== undefined) out[field] = value;
+    if (value !== undefined) assignField(out, field, value);
   }
   return out as T;
 }
@@ -98,21 +109,14 @@ export type ColumnLoader = (field: string) => Column;
 /**
  * Per-field columnar storage. Each column carries a null bitmap (1 bit per
  * row, packed; bit set = null) so we never confuse `null` from `''` / `0` /
- * `false`.
+ * `false`. A discriminated union on `encoding`: each variant carries exactly the
+ * payload its encoding needs, so readers narrow with no optional-field guards.
  */
-export interface Column {
-  encoding: ColumnEncoding;
-  nullBitmap: Uint8Array;
-  /** Dictionary table for utf8-dict columns. */
-  dict?: string[];
-  /** Per-row dict index for utf8-dict columns. */
-  indices?: Uint32Array;
-  /** Raw values for f64 / u8-bool columns. */
-  data?: Float64Array | Uint8Array;
-  /** Per-row JSON byte ranges for json-fallback columns. */
-  jsonOffsets?: Uint32Array;
-  jsonBytes?: Uint8Array;
-}
+export type Column =
+  | { encoding: 'utf8-dict'; nullBitmap: Uint8Array; dict: string[]; indices: Uint32Array }
+  | { encoding: 'f64'; nullBitmap: Uint8Array; data: Float64Array }
+  | { encoding: 'u8-bool'; nullBitmap: Uint8Array; data: Uint8Array }
+  | { encoding: 'json-fallback'; nullBitmap: Uint8Array; jsonOffsets: Uint32Array; jsonBytes: Uint8Array };
 
 /**
  * Encode a single field across `rows` into a `Column`. The encoding heuristic
@@ -247,36 +251,20 @@ function encodeJsonFallback<T extends Record<string, unknown>>(
     total += bytes.length;
   }
   offsets[len] = total;
-  const jsonBytes = new Uint8Array(total);
-  let off = 0;
-  for (const chunk of chunks) {
-    jsonBytes.set(chunk, off);
-    off += chunk.length;
-  }
+  const jsonBytes = concatChunks(chunks, total);
   return { encoding: 'json-fallback', nullBitmap, jsonOffsets: offsets, jsonBytes };
 }
 
-function isNullAt(bitmap: Uint8Array, idx: number): boolean {
-  return readBit(bitmap, idx) === 1;
-}
-
 function readColumnValue(col: Column, idx: number): unknown {
-  if (isNullAt(col.nullBitmap, idx)) return undefined;
+  if (readBit(col.nullBitmap, idx) === 1) return undefined;
   switch (col.encoding) {
-    case 'utf8-dict': {
-      if (!col.dict || !col.indices) return undefined;
+    case 'utf8-dict':
       return col.dict[col.indices[idx]];
-    }
-    case 'f64': {
-      if (!col.data) return undefined;
-      return (col.data as Float64Array)[idx];
-    }
-    case 'u8-bool': {
-      if (!col.data) return undefined;
-      return readBit(col.data as Uint8Array, idx) === 1;
-    }
+    case 'f64':
+      return col.data[idx];
+    case 'u8-bool':
+      return readBit(col.data, idx) === 1;
     case 'json-fallback': {
-      if (!col.jsonOffsets || !col.jsonBytes) return undefined;
       const off = col.jsonOffsets[idx];
       const end = col.jsonOffsets[idx + 1];
       if (off === end) return undefined;
@@ -347,7 +335,7 @@ export class ColumnarItemStore<T extends Record<string, unknown>> implements Ite
     const names = fields ?? this.fieldNames;
     for (const field of names) {
       const value = this.getField(idx, field);
-      if (value !== undefined) out[field] = value;
+      if (value !== undefined) assignField(out, field, value);
     }
     return out as T;
   }

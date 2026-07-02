@@ -159,8 +159,14 @@ export interface LyraField {
   name: string;
   kind: FieldKind;
   type: FieldType;
+  /**
+   * @deprecated Derived from `kind` and consumed by nothing — `kind` +
+   * `capabilities` is the single source of what a field supports. Still emitted
+   * (correctly, `[]` for id/meta) for wire back-compat; will be removed in a
+   * future major.
+   */
   ops: Array<'eq' | 'in' | 'between' | 'gte' | 'lte'>;
-  
+
   /**
    * For alias fields (kind='alias'): the canonical facet field this alias resolves to.
    * Example: If `zone_name` is an alias for `zone_id`, then `aliasTarget = 'zone_id'`.

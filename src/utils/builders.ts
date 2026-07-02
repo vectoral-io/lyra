@@ -19,8 +19,35 @@ import type { ItemStore } from './item-store';
  */
 export const BUNDLE_VERSION = '4.1.0';
 
+/**
+ * Bundle major versions this build can load. The current major is derived from
+ * `BUNDLE_VERSION`; `'3'` is the legacy JSON major we still read. Co-located
+ * with `BUNDLE_VERSION` so bumping the format only touches one place.
+ */
+const SUPPORTED_MAJORS: ReadonlySet<string> = new Set(['3', BUNDLE_VERSION.split('.')[0]]);
+
 const VALID_KINDS: readonly FieldKind[] = ['id', 'facet', 'range', 'meta', 'alias'];
 const VALID_TYPES: readonly FieldType[] = ['string', 'number', 'boolean', 'date'];
+
+type FieldOps = Array<'eq' | 'in' | 'between' | 'gte' | 'lte'>;
+
+/**
+ * The query operators a field kind supports. Derived from `kind` (the single
+ * owner of "what is queryable"): id/meta fields are not queryable and get no
+ * ops. Kept as one function so the manifest can't disagree with itself.
+ * @internal
+ */
+function opsForKind(kind: FieldKind): FieldOps {
+  switch (kind) {
+    case 'range':
+      return ['between', 'gte', 'lte'];
+    case 'facet':
+    case 'alias':
+      return ['eq', 'in'];
+    default:
+      return []; // id, meta: not queryable
+  }
+}
 
 /**
  * Build a manifest from bundle configuration.
@@ -51,9 +78,7 @@ export function buildManifest<TItem extends Record<string, unknown>>(
         name,
         kind: cfg.kind,
         type: cfg.type,
-        ops: (cfg.kind === 'range' ? ['between', 'gte', 'lte'] : ['eq', 'in']) as Array<
-          'eq' | 'in' | 'between' | 'gte' | 'lte'
-        >,
+        ops: opsForKind(cfg.kind),
         aliasTarget: cfg.kind === 'alias' ? cfg.targetField : undefined,
       };
     });
@@ -93,9 +118,9 @@ export function buildManifest<TItem extends Record<string, unknown>>(
 export function validateManifest(manifest: LyraManifest): void {
   if (!manifest.version) throw new Error('Invalid bundle: missing version');
   const major = manifest.version.split('.')[0];
-  if (major !== '3' && major !== '4') {
+  if (!SUPPORTED_MAJORS.has(major)) {
     throw new Error(
-      `Invalid bundle version: "${manifest.version}". Expected version starting with "3." or "4."`,
+      `Invalid bundle version: "${manifest.version}". Supported majors: ${[...SUPPORTED_MAJORS].join(', ')}`,
     );
   }
 
@@ -159,6 +184,52 @@ export function validateManifest(manifest: LyraManifest): void {
   assertCapabilityCovers(manifest, 'alias', manifest.capabilities.aliases ?? [], 'aliases');
 }
 
+/**
+ * Validate a fully-decoded bundle's index structures against its manifest and
+ * item count. Shared by both the JSON and binary load paths so the rules live
+ * in one place: manifest consistency, the facet-field allow-list, and — the
+ * part that matters for untrusted input — every posting index is in
+ * `[0, itemCount)`. An out-of-range posting would otherwise index past the item
+ * store at query time and throw deep in the pipeline; reject it at the door.
+ *
+ * @internal
+ */
+export function validateDecodedBundle(
+  manifest: LyraManifest,
+  itemCount: number,
+  facetIndex: InMemoryFacetIndex,
+  nullIndex: InMemoryNullIndex,
+): void {
+  validateManifest(manifest);
+
+  const declaredFacets = new Set(manifest.capabilities.facets);
+  for (const field of Object.keys(facetIndex)) {
+    if (!declaredFacets.has(field)) {
+      throw new Error(
+        `Invalid bundle: facetIndex contains field "${field}" that is not in capabilities.facets`,
+      );
+    }
+    const byValue = facetIndex[field];
+    for (const valueKey of Object.keys(byValue)) {
+      assertPostingsInRange(byValue[valueKey], itemCount, `facetIndex["${field}"]["${valueKey}"]`);
+    }
+  }
+
+  for (const field of Object.keys(nullIndex)) {
+    assertPostingsInRange(nullIndex[field], itemCount, `nullIndex["${field}"]`);
+  }
+}
+
+function assertPostingsInRange(postings: Uint32Array, itemCount: number, context: string): void {
+  for (let i = 0; i < postings.length; i++) {
+    if (postings[i] >= itemCount) {
+      throw new Error(
+        `Invalid bundle: ${context} posting index ${postings[i]} out of range [0, ${itemCount})`,
+      );
+    }
+  }
+}
+
 function assertCapabilityCovers(
   manifest: LyraManifest,
   kind: FieldKind,
@@ -190,8 +261,12 @@ export function buildFacetIndex<T extends Record<string, unknown>>(
   manifest: LyraManifest,
 ): InMemoryFacetIndex {
   const facetFields = manifest.capabilities.facets;
-  const transient: Record<string, Record<string, number[]>> = {};
-  for (const field of facetFields) transient[field] = {};
+  // Null-prototype maps throughout: a facet value (or field name) that stringifies
+  // to "__proto__" / "constructor" / "toString" must be an own data key, not a
+  // collision with an inherited method (which would make `byValue[key]` return a
+  // function and corrupt indexing). Mirrors the load path's hardening.
+  const transient: Record<string, Record<string, number[]>> = Object.create(null);
+  for (const field of facetFields) transient[field] = Object.create(null);
 
   for (let idx = 0; idx < items.length; idx++) {
     const item = items[idx] as Record<string, unknown>;
@@ -224,10 +299,10 @@ export function buildFacetIndex<T extends Record<string, unknown>>(
     }
   }
 
-  const facetIndex: InMemoryFacetIndex = {};
+  const facetIndex: InMemoryFacetIndex = Object.create(null);
   for (const field of facetFields) {
     const byValue = transient[field];
-    const out: Record<string, Uint32Array> = {};
+    const out: Record<string, Uint32Array> = Object.create(null);
     for (const valueKey in byValue) {
       out[valueKey] = new Uint32Array(byValue[valueKey]);
     }
@@ -255,7 +330,7 @@ export function buildNullIndex<T extends Record<string, unknown>>(
     (fld) => fld.kind === 'facet' || fld.kind === 'range' || fld.kind === 'alias',
   );
 
-  const transient: Record<string, number[]> = {};
+  const transient: Record<string, number[]> = Object.create(null);
   for (const field of indexable) transient[field.name] = [];
 
   for (let idx = 0; idx < items.length; idx++) {
@@ -266,7 +341,7 @@ export function buildNullIndex<T extends Record<string, unknown>>(
     }
   }
 
-  const nullIndex: InMemoryNullIndex = {};
+  const nullIndex: InMemoryNullIndex = Object.create(null);
   for (const field of indexable) {
     nullIndex[field.name] = new Uint32Array(transient[field.name]);
   }
@@ -282,17 +357,13 @@ export function buildNullIndex<T extends Record<string, unknown>>(
  * @internal
  */
 export function buildRangeColumns<T extends Record<string, unknown>>(
-  source: T[] | ItemStore<T>,
+  source: ItemStore<T>,
   manifest: LyraManifest,
 ): RangeColumns {
   const rangeFields = manifest.fields.filter((fld) => fld.kind === 'range');
   const columns: RangeColumns = {};
 
-  const isStore = !Array.isArray(source);
-  const length = isStore ? (source as ItemStore<T>).length : (source as T[]).length;
-  const readField = isStore
-    ? (idx: number, field: string): unknown => (source as ItemStore<T>).getField(idx, field)
-    : (idx: number, field: string): unknown => (source as T[])[idx][field];
+  const length = source.length;
 
   for (const field of rangeFields) {
     const col = new Float64Array(length);
@@ -300,7 +371,7 @@ export function buildRangeColumns<T extends Record<string, unknown>>(
     const fieldType = field.type;
 
     for (let idx = 0; idx < length; idx++) {
-      const raw = readField(idx, fieldName);
+      const raw = source.getField(idx, fieldName);
       if (raw == null) {
         col[idx] = Number.NaN;
         continue;
@@ -339,8 +410,10 @@ export function buildLookupTablesFromData<T>(
   const lookups: Record<string, LookupTable> = {};
 
   for (const [aliasField, targetField] of Object.entries(aliases)) {
-    const aliasToIds: Record<string, Set<string>> = {};
-    const idToAliases: Record<string, Set<string>> = {};
+    // Null-prototype maps: alias/target values are item data and may stringify to
+    // "__proto__" / "constructor" / "toString"; keep them own data keys.
+    const aliasToIds: Record<string, Set<string>> = Object.create(null);
+    const idToAliases: Record<string, Set<string>> = Object.create(null);
     let foundPairs = 0;
     let missingAlias = 0;
     let missingTarget = 0;
@@ -393,14 +466,17 @@ export function buildLookupTablesFromData<T>(
     }
 
     lookups[aliasField] = {
-      aliasToIds: Object.fromEntries(
-        Object.entries(aliasToIds).map(([key, valueSet]) => [key, Array.from(valueSet)]),
-      ),
-      idToAliases: Object.fromEntries(
-        Object.entries(idToAliases).map(([key, valueSet]) => [key, Array.from(valueSet)]),
-      ),
+      aliasToIds: setMapToArrayMap(aliasToIds),
+      idToAliases: setMapToArrayMap(idToAliases),
     };
   }
 
   return lookups;
+}
+
+/** Freeze a `Record<string, Set>` into a null-prototype `Record<string, string[]>`. */
+function setMapToArrayMap(source: Record<string, Set<string>>): Record<string, string[]> {
+  const out: Record<string, string[]> = Object.create(null);
+  for (const key in source) out[key] = Array.from(source[key]);
+  return out;
 }

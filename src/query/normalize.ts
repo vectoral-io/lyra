@@ -7,10 +7,10 @@ import type { LyraManifest, LyraQuery, RangeBound, Scalar } from '../types';
 export interface NormalizedQuery {
   equalFilters: Record<string, Scalar | Scalar[]>;
   notEqualFilters: Record<string, Scalar | Scalar[]>;
-  rangeFilters: Record<string, RangeBound>;
+  rangeFilters: Readonly<Record<string, RangeBound>>;
   nullChecks: { isNull: string[]; isNotNull: string[] };
   /** Fields in `equal` that also require null matching (OR semantics from `[val, null]`). */
-  equalWithNull: Set<string>;
+  equalWithNull: ReadonlySet<string>;
 }
 
 /**
@@ -29,11 +29,9 @@ const EMPTY_SET: ReadonlySet<string> = new Set();
 const EMPTY_OBJECT: Readonly<Record<string, never>> = Object.freeze({});
 
 export function normalizeQuery(query: LyraQuery): NormalizedQuery {
-  const needsIsNullCopy = (query.isNull?.length ?? 0) > 0;
-  const needsIsNotNullCopy = (query.isNotNull?.length ?? 0) > 0;
   const nullChecks = {
-    isNull: needsIsNullCopy ? [...query.isNull!] : [],
-    isNotNull: needsIsNotNullCopy ? [...query.isNotNull!] : [],
+    isNull: query.isNull?.length ? [...query.isNull] : [],
+    isNotNull: query.isNotNull?.length ? [...query.isNotNull] : [],
   };
   let equalWithNull: Set<string> | null = null;
   const equalFilters: Record<string, Scalar | Scalar[]> = {};
@@ -94,9 +92,9 @@ export function normalizeQuery(query: LyraQuery): NormalizedQuery {
   return {
     equalFilters,
     notEqualFilters,
-    rangeFilters: query.ranges ?? (EMPTY_OBJECT as Record<string, never>),
+    rangeFilters: query.ranges ?? EMPTY_OBJECT,
     nullChecks,
-    equalWithNull: equalWithNull ?? (EMPTY_SET as Set<string>),
+    equalWithNull: equalWithNull ?? EMPTY_SET,
   };
 }
 
@@ -104,7 +102,11 @@ export function normalizeQuery(query: LyraQuery): NormalizedQuery {
  * Resolve alias fields in a filter record to their canonical target fields.
  *
  * Policy: values that have no mapping are dropped with a single batched warning per field.
- * If every value for a field is unmapped, the field's constraint is dropped entirely.
+ * If every value for a field is unmapped, the constraint fails CLOSED for `equal`
+ * (an impossible empty-IN on the target ⇒ zero matches) rather than being dropped,
+ * which would fail open and return the whole dataset for a hallucinated alias value.
+ * For `notEqual`, excluding a value that maps to nothing excludes nothing, so an
+ * all-unmapped field is correctly dropped (no-op).
  *
  * @internal
  */
@@ -159,6 +161,12 @@ export function resolveAliases(
       const target = fieldDef.aliasTarget!;
       const deduped = [...new Set(resolvedIds)];
       resolved[target] = deduped.length === 1 ? deduped[0] : deduped;
+    }
+    else if (operatorName === 'equal') {
+      // Every alias value was unmapped. Fail closed with an impossible empty-IN
+      // constraint on the target — the equal pipeline short-circuits it to zero
+      // matches — instead of dropping the field (which returns all rows).
+      resolved[fieldDef.aliasTarget!] = [];
     }
   }
 

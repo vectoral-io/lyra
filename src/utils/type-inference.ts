@@ -33,6 +33,12 @@ export function isSimpleValue(value: unknown): boolean {
 
 /**
  * Infer the field type from actual values in the items array.
+ *
+ * Probes ALL non-null values, not just the first: a column mixing scalar types
+ * (e.g. `[5, 'x']`) has no single numeric/boolean type, so it classifies as
+ * `string`. This keeps the manifest type consistent with how the columnar store
+ * encodes such a column (json-fallback, i.e. non-numeric) — otherwise the
+ * schema would advertise `number` and facet-value decoding would emit `NaN`.
  * @internal
  */
 export function inferFieldType<T extends Record<string, unknown>>(
@@ -42,21 +48,22 @@ export function inferFieldType<T extends Record<string, unknown>>(
 ): FieldType {
   if (mode === 'none') return 'string';
 
+  let seen: FieldType | null = null;
   for (const item of items) {
     const value = item[field];
     if (value === null || value === undefined) continue;
 
     const valueType = typeof value;
-    if (valueType === 'number') return 'number';
-    if (valueType === 'boolean') return 'boolean';
-    if (valueType === 'string') return 'string';
+    // Objects, arrays, and anything non-primitive collapse to 'string'.
+    const kind: FieldType =
+      valueType === 'number' ? 'number' : valueType === 'boolean' ? 'boolean' : 'string';
 
-    // Anything else (object, array, etc.): default to string
-    return 'string';
+    if (seen === null) seen = kind;
+    else if (seen !== kind) return 'string'; // mixed scalar types: no single type
   }
 
-  // No values found; default to string
-  return 'string';
+  // No non-null values found; default to string.
+  return seen ?? 'string';
 }
 
 /**

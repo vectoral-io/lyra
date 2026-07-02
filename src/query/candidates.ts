@@ -118,6 +118,20 @@ export function selectEqualCandidates(
 }
 
 /**
+ * Increment `bucket[key]`, treating a non-numeric current value as 0. The guard
+ * keeps a facet value that stringifies to an inherited method name ("toString",
+ * "valueOf", …) correct: the first read sees the inherited function, coerces to
+ * 0, and the write then shadows it with an own numeric property. Plain objects
+ * stay fast here (monomorphic, low-cardinality facets) where a null-proto object
+ * or Map would run slower. A literal "__proto__" value is the one pathological
+ * case — its write is ignored — but that neither pollutes nor throws.
+ */
+function bump(bucket: Record<string, number>, key: string): void {
+  const current = bucket[key];
+  bucket[key] = (typeof current === 'number' ? current : 0) + 1;
+}
+
+/**
  * Count facet values across a candidate index set (canonical facets only).
  * Array-valued facets contribute one count per element.
  */
@@ -137,14 +151,10 @@ export function computeFacetCounts<T extends Record<string, unknown>>(
       if (raw === undefined || raw === null) continue;
       const bucket = counts[field];
       if (Array.isArray(raw)) {
-        for (const value of raw) {
-          const key = encodeFacetKey(value);
-          bucket[key] = (bucket[key] ?? 0) + 1;
-        }
+        for (const value of raw) bump(bucket, encodeFacetKey(value));
       }
       else {
-        const key = encodeFacetKey(raw);
-        bucket[key] = (bucket[key] ?? 0) + 1;
+        bump(bucket, encodeFacetKey(raw));
       }
     }
   }

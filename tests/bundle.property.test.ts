@@ -204,8 +204,11 @@ function compareResults(
 // ==============================
 
 describe('LyraBundle - Property Tests', () => {
-  // Configure fast-check for reproducibility
+  // Configure fast-check for reproducibility: a pinned seed means a failing run
+  // reproduces exactly (override with FC_SEED to widen the search locally).
   const NUM_RUNS = 50;
+  const FC_SEED = process.env.FC_SEED ? Number(process.env.FC_SEED) : 0x1_9a2b;
+  const fcConfig = { numRuns: NUM_RUNS, seed: FC_SEED } as const;
 
   it('query results match naive Array.filter implementation', async () => {
     await fc.assert(
@@ -250,7 +253,7 @@ describe('LyraBundle - Property Tests', () => {
           return true;
         },
       ),
-      { numRuns: NUM_RUNS },
+      fcConfig,
     );
   });
 
@@ -328,7 +331,7 @@ describe('LyraBundle - Property Tests', () => {
           return true;
         },
       ),
-      { numRuns: NUM_RUNS },
+      fcConfig,
     );
   });
 });

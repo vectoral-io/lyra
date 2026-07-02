@@ -8,6 +8,7 @@ dist
 
 # stray compiled declarations in the source tree (build emits to dist/)
 src/**/*.d.ts
+src/**/*.d.ts.map
 
 # code coverage
 coverage

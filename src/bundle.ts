@@ -1,8 +1,6 @@
 import type {
   AnyBundleConfig,
   CreateBundleConfig,
-  FacetPostingLists,
-  FacetPostingListsBin,
   InMemoryFacetIndex,
   InMemoryNullIndex,
   LyraBundleJSON,
@@ -10,15 +8,12 @@ import type {
   LyraQuery,
   LyraResult,
   LyraSnapshotInfo,
-  NullPostingLists,
-  NullPostingListsBin,
   RangeColumns,
-  RangeColumnsJSON,
   SimpleBundleConfig,
 } from './types';
 import { enrichItems, getAliasValues } from './aliases';
 import { filterByExclusions, filterByNullChecks, filterByRanges } from './query/filters';
-import { normalizeQuery, resolveAliases } from './query/normalize';
+import { normalizeQuery, type NormalizedQuery, resolveAliases } from './query/normalize';
 import { decodeFacetKey } from './query/facet-key';
 import * as arrayOps from './utils/array-operations';
 import { viewOf, type SortedSource } from './utils/array-operations';
@@ -30,15 +25,10 @@ import {
   buildManifest,
   buildNullIndex,
   buildRangeColumns,
-  validateManifest,
+  validateDecodedBundle,
 } from './utils/builders';
 import { decodeV4, encodeV4, isV4Bundle } from './utils/binary-bundle';
-import {
-  b64ToF64Array,
-  deltaVarintDecode,
-  deltaVarintEncode,
-  f64ArrayToB64,
-} from './utils/codec';
+import { decodeJSON, encodeJSON } from './utils/json-bundle';
 import {
   ColumnarItemStore,
   type ItemStore,
@@ -72,6 +62,9 @@ export async function createBundle<T extends Record<string, unknown>>(
 }
 
 
+/** Query-pipeline scratch buffers: equal candidates, per-stage outputs, and two workspaces. */
+type ScratchKey = 'equal' | 'range' | 'null' | 'excl' | 'workA' | 'workB';
+
 /**
  * Immutable bundle of items plus a manifest that describes fields and capabilities.
  */
@@ -83,7 +76,6 @@ export class LyraBundle<T extends Record<string, unknown>> {
   private readonly manifest: LyraManifest;
   private _facetIndex: InMemoryFacetIndex | null;
   private _nullIndex: InMemoryNullIndex | null;
-  private disposed = false;
   // Lazily built on first range-using query — building Float64Array columns
   // (especially date columns via Date.parse per item) is expensive, so we
   // defer it from bundle creation and pay it once on first use.
@@ -92,14 +84,14 @@ export class LyraBundle<T extends Record<string, unknown>> {
   // Cached [0..itemStore.length) for empty-query fast path. Lazily filled on demand.
   private cachedAllIndices: Uint32Array | null = null;
 
-  // Per-stage and workspace scratch buffers, sized to itemStore.length. Lazily
-  // allocated on first query so bundle creation pays only for what users use.
-  private cachedBufEqual: Uint32Array | null = null;
-  private cachedBufRange: Uint32Array | null = null;
-  private cachedBufNull: Uint32Array | null = null;
-  private cachedBufExcl: Uint32Array | null = null;
-  private cachedBufWorkA: Uint32Array | null = null;
-  private cachedBufWorkB: Uint32Array | null = null;
+  // Set of declared field names, for the unknown-field query check. Derived
+  // from the manifest (which outlives dispose), so it needs no reset.
+  private cachedFieldNames: Set<string> | null = null;
+
+  // Per-stage and workspace scratch buffers, each sized to itemStore.length and
+  // lazily allocated on first use (see `buf`) so bundle creation pays only for
+  // what users query.
+  private scratch: Partial<Record<ScratchKey, Uint32Array>> = {};
 
   private constructor(
     itemStore: ItemStore<T>,
@@ -141,23 +133,9 @@ export class LyraBundle<T extends Record<string, unknown>> {
     }
     return this.cachedAllIndices;
   }
-  private get bufEqual(): Uint32Array {
-    return this.cachedBufEqual ??= new Uint32Array(this.itemStore.length);
-  }
-  private get bufRange(): Uint32Array {
-    return this.cachedBufRange ??= new Uint32Array(this.itemStore.length);
-  }
-  private get bufNull(): Uint32Array {
-    return this.cachedBufNull ??= new Uint32Array(this.itemStore.length);
-  }
-  private get bufExcl(): Uint32Array {
-    return this.cachedBufExcl ??= new Uint32Array(this.itemStore.length);
-  }
-  private get bufWorkA(): Uint32Array {
-    return this.cachedBufWorkA ??= new Uint32Array(this.itemStore.length);
-  }
-  private get bufWorkB(): Uint32Array {
-    return this.cachedBufWorkB ??= new Uint32Array(this.itemStore.length);
+  /** Lazily allocate (and memoize) a scratch buffer sized to the item count. */
+  private buf(key: ScratchKey): Uint32Array {
+    return (this.scratch[key] ??= new Uint32Array(this.itemStore.length));
   }
 
   /**
@@ -219,6 +197,11 @@ export class LyraBundle<T extends Record<string, unknown>> {
    */
   query(query: LyraQuery = {}): LyraResult<T> {
     const normalized = normalizeQuery(query);
+    // Unknown-field contract (uniform across operators): if any operator
+    // references a field the manifest doesn't declare, the query matches
+    // nothing. Enforced in one place so notEqual/isNull can't silently fail
+    // open on a typo the way equal/ranges already fail closed.
+    if (this.referencesUnknownField(normalized)) return this.emptyResult(query);
     // Alias resolution is only needed when the bundle declares aliases. Most queries
     // against aliasless bundles should skip this — it's pure overhead otherwise.
     const hasAliases =
@@ -237,9 +220,9 @@ export class LyraBundle<T extends Record<string, unknown>> {
       this.facetIndex,
       this.allIndices,
       this.itemStore.length,
-      this.bufEqual,
-      this.bufWorkA,
-      this.bufWorkB,
+      this.buf('equal'),
+      this.buf('workA'),
+      this.buf('workB'),
     );
     if (equalResult === null) return this.emptyResult(query);
     let candidates: SortedSource = equalResult.buf;
@@ -258,8 +241,8 @@ export class LyraBundle<T extends Record<string, unknown>> {
           viewOf(candidates, candidatesLen),
           ...nullLists,
         ];
-        candidatesLen = arrayOps.mergeUnionSorted(inputs, this.bufWorkA);
-        candidates = this.bufWorkA;
+        candidatesLen = arrayOps.mergeUnionSorted(inputs, this.buf('workA'));
+        candidates = this.buf('workA');
       }
     }
 
@@ -275,9 +258,9 @@ export class LyraBundle<T extends Record<string, unknown>> {
         candidatesLen,
         normalized.rangeFilters,
         this.rangeColumns,
-        this.bufRange,
+        this.buf('range'),
       );
-      candidates = this.bufRange;
+      candidates = this.buf('range');
     }
 
     // 4. Null checks (skip fields already covered by equalWithNull).
@@ -294,11 +277,11 @@ export class LyraBundle<T extends Record<string, unknown>> {
         this.itemStore,
         explicitNullChecks,
         this.nullIndex,
-        this.bufWorkA,
-        this.bufWorkB,
-        this.bufNull,
+        this.buf('workA'),
+        this.buf('workB'),
+        this.buf('null'),
       );
-      candidates = this.bufNull;
+      candidates = this.buf('null');
     }
 
     // 5. Exclusions.
@@ -308,9 +291,9 @@ export class LyraBundle<T extends Record<string, unknown>> {
         candidatesLen,
         this.itemStore,
         resolvedNotEqual,
-        this.bufExcl,
+        this.buf('excl'),
       );
-      candidates = this.bufExcl;
+      candidates = this.buf('excl');
     }
 
     // 6. Facet counts (canonical facets only).
@@ -447,7 +430,7 @@ export class LyraBundle<T extends Record<string, unknown>> {
    * Whether this bundle has been disposed.
    */
   get isDisposed(): boolean {
-    return this.disposed;
+    return this._itemStore === null;
   }
 
   /**
@@ -461,18 +444,12 @@ export class LyraBundle<T extends Record<string, unknown>> {
    * `getFacetSummary`, `toJSON`, `serialize`) throws.
    */
   dispose(): void {
-    this.disposed = true;
     this._itemStore = null;
     this._facetIndex = null;
     this._nullIndex = null;
     this.cachedRangeColumns = null;
     this.cachedAllIndices = null;
-    this.cachedBufEqual = null;
-    this.cachedBufRange = null;
-    this.cachedBufNull = null;
-    this.cachedBufExcl = null;
-    this.cachedBufWorkA = null;
-    this.cachedBufWorkB = null;
+    this.scratch = {};
   }
 
   /**
@@ -482,49 +459,17 @@ export class LyraBundle<T extends Record<string, unknown>> {
    * back-compat, plus the v3.1 binary fields (`rangeColumns`, `facetIndexBin`,
    * `nullIndexBin`) which loaders prefer for faster, smaller hydration.
    *
-   *! NOTE: Any structural change here must be reflected in docs/bundle-json-spec.md
+   * Format encode/decode lives in `utils/json-bundle.ts`; this just supplies the
+   * in-memory structures (materializing range columns so they ride on the wire).
    */
   toJSON(): LyraBundleJSON<T> {
-    const facetIndex: FacetPostingLists = {};
-    const facetIndexBin: FacetPostingListsBin = {};
-    for (const field in this.facetIndex) {
-      const byValue = this.facetIndex[field];
-      const legacy: Record<string, number[]> = {};
-      const binary: Record<string, string> = {};
-      for (const valueKey in byValue) {
-        const postings = byValue[valueKey];
-        legacy[valueKey] = Array.from(postings);
-        binary[valueKey] = deltaVarintEncode(postings);
-      }
-      facetIndex[field] = legacy;
-      facetIndexBin[field] = binary;
-    }
-
-    const nullIndex: NullPostingLists = {};
-    const nullIndexBin: NullPostingListsBin = {};
-    for (const field in this.nullIndex) {
-      const postings = this.nullIndex[field];
-      nullIndex[field] = Array.from(postings);
-      nullIndexBin[field] = deltaVarintEncode(postings);
-    }
-
-    // Eagerly materialize range columns so they ride along on the wire and
-    // reloaders skip the per-load Date.parse storm.
-    const rangeColumnsMap = this.rangeColumns;
-    const rangeColumns: RangeColumnsJSON = {};
-    for (const field in rangeColumnsMap) {
-      rangeColumns[field] = { encoding: 'b64f64', data: f64ArrayToB64(rangeColumnsMap[field]) };
-    }
-
-    return {
+    return encodeJSON<T>({
       manifest: this.manifest,
       items: this.itemStore.materializeAll(),
-      facetIndex,
-      nullIndex,
-      rangeColumns,
-      facetIndexBin,
-      nullIndexBin,
-    };
+      facetIndex: this.facetIndex,
+      nullIndex: this.nullIndex,
+      rangeColumns: this.rangeColumns,
+    });
   }
 
   /**
@@ -569,87 +514,16 @@ export class LyraBundle<T extends Record<string, unknown>> {
     if (raw instanceof Uint8Array) {
       return LyraBundle.loadBinary<TItem>(raw);
     }
-    if (!raw || !raw.manifest || !raw.items) {
-      throw new Error('Invalid bundle JSON: missing manifest or items');
-    }
 
-    const { manifest, items } = raw;
-    validateManifest(manifest);
-
-    const rawFacet: FacetPostingLists = raw.facetIndex ?? {};
-    const rawNull: NullPostingLists = raw.nullIndex ?? {};
-    const rawFacetBin = raw.facetIndexBin;
-    const rawNullBin = raw.nullIndexBin;
-
-    // Validate facet index — reject unknown fields in either legacy or binary block.
-    const allFacetKeys = new Set<string>();
-    for (const k of Object.keys(rawFacet)) allFacetKeys.add(k);
-    if (rawFacetBin) for (const k of Object.keys(rawFacetBin)) allFacetKeys.add(k);
-    for (const indexKey of allFacetKeys) {
-      if (!manifest.capabilities.facets.includes(indexKey)) {
-        throw new Error(
-          `Invalid bundle: facetIndex contains field "${indexKey}" that is not in capabilities.facets`,
-        );
-      }
-    }
-
-    // Null-prototype maps: a facet field or value named "__proto__" must land
-    // as an own key, not mutate the map's prototype — which would corrupt
-    // query-time lookups and slip past the capability allow-list checked above.
-    const facetIndex: InMemoryFacetIndex = Object.create(null);
-    for (const field of manifest.capabilities.facets) {
-      const out: Record<string, Uint32Array> = Object.create(null);
-      const binByValue = rawFacetBin?.[field];
-      if (binByValue) {
-        for (const valueKey in binByValue) {
-          out[valueKey] = deltaVarintDecode(binByValue[valueKey]);
-        }
-      }
-      else {
-        const byValue = rawFacet[field];
-        if (byValue) {
-          for (const valueKey in byValue) {
-            out[valueKey] = numberArrayToUint32(byValue[valueKey]);
-          }
-        }
-      }
-      facetIndex[field] = out;
-    }
-
-    const nullIndex: InMemoryNullIndex = Object.create(null);
-    if (rawNullBin) {
-      for (const field in rawNullBin) {
-        nullIndex[field] = deltaVarintDecode(rawNullBin[field]);
-      }
-    }
-    else {
-      for (const field in rawNull) {
-        nullIndex[field] = numberArrayToUint32(rawNull[field]);
-      }
-    }
-
-    // Range columns: prefer pre-encoded block; otherwise leave null and let
-    // the lazy getter rebuild from items on first range query (legacy path).
-    let preloadedRangeColumns: RangeColumns | null = null;
-    if (raw.rangeColumns) {
-      preloadedRangeColumns = Object.create(null) as RangeColumns;
-      for (const field in raw.rangeColumns) {
-        const block = raw.rangeColumns[field];
-        if (block.encoding !== 'b64f64') {
-          throw new Error(
-            `Invalid bundle: rangeColumns["${field}"] has unsupported encoding "${block.encoding}"`,
-          );
-        }
-        preloadedRangeColumns[field] = b64ToF64Array(block.data);
-      }
-    }
+    const decoded = decodeJSON<TItem>(raw);
+    validateDecodedBundle(decoded.manifest, decoded.items.length, decoded.facetIndex, decoded.nullIndex);
 
     return new LyraBundle<TItem>(
-      new RowItemStore(items),
-      manifest,
-      facetIndex,
-      nullIndex,
-      preloadedRangeColumns,
+      new RowItemStore(decoded.items),
+      decoded.manifest,
+      decoded.facetIndex,
+      decoded.nullIndex,
+      decoded.rangeColumns,
     );
   }
 
@@ -658,8 +532,9 @@ export class LyraBundle<T extends Record<string, unknown>> {
    * passed a `Uint8Array`; expose explicitly for callers that prefer the
    * direct path.
    *
-   * Validates the manifest and ensures every facet/null index field is
-   * declared in `capabilities`; rejects unknown fields with a clear error.
+   * Validation (manifest consistency, facet allow-list, and posting bounds
+   * against the item count) runs through the shared `validateDecodedBundle`, so
+   * the JSON and binary paths reject hostile input by the same rules.
    */
   static loadBinary<TItem extends Record<string, unknown>>(
     bytes: Uint8Array,
@@ -668,15 +543,8 @@ export class LyraBundle<T extends Record<string, unknown>> {
       throw new Error('Invalid bundle: expected v4 binary buffer (magic "LYRA4")');
     }
     const decoded = decodeV4<TItem>(bytes);
-    validateManifest(decoded.manifest);
-
-    for (const field of Object.keys(decoded.facetIndex)) {
-      if (!decoded.manifest.capabilities.facets.includes(field)) {
-        throw new Error(
-          `Invalid bundle: facetIndex contains field "${field}" that is not in capabilities.facets`,
-        );
-      }
-    }
+    const itemCount = decoded.items.kind === 'rows' ? decoded.items.rows.length : decoded.items.length;
+    validateDecodedBundle(decoded.manifest, itemCount, decoded.facetIndex, decoded.nullIndex);
 
     const itemStore: ItemStore<TItem> = decoded.items.kind === 'rows'
       ? new RowItemStore<TItem>(decoded.items.rows)
@@ -718,6 +586,21 @@ export class LyraBundle<T extends Record<string, unknown>> {
   // ---- Private helpers ----
 
   /**
+   * True if any operator in the normalized query names a field the manifest
+   * doesn't declare. Such a query matches nothing (fail closed).
+   * @internal
+   */
+  private referencesUnknownField(normalized: NormalizedQuery): boolean {
+    const known = (this.cachedFieldNames ??= new Set(this.manifest.fields.map((fld) => fld.name)));
+    for (const field of Object.keys(normalized.equalFilters)) if (!known.has(field)) return true;
+    for (const field of Object.keys(normalized.notEqualFilters)) if (!known.has(field)) return true;
+    for (const field of Object.keys(normalized.rangeFilters)) if (!known.has(field)) return true;
+    for (const field of normalized.nullChecks.isNull) if (!known.has(field)) return true;
+    for (const field of normalized.nullChecks.isNotNull) if (!known.has(field)) return true;
+    return false;
+  }
+
+  /**
    * The filter view echoed back on a result. (Reflects the requested filters.)
    * @internal
    */
@@ -748,20 +631,5 @@ export class LyraBundle<T extends Record<string, unknown>> {
 
 // Re-export version constant (used by tests and external validators).
 export { BUNDLE_VERSION };
-
-// Utilities
-// ==============================
-
-/**
- * Pre-allocated copy from a plain `number[]` to a `Uint32Array`. Faster than
- * `Uint32Array.from(arr)` because it avoids the iterator protocol and the
- * intermediate spec-mandated growth path; one allocation, one tight loop.
- * @internal
- */
-function numberArrayToUint32(source: number[]): Uint32Array {
-  const out = new Uint32Array(source.length);
-  for (let i = 0; i < source.length; i++) out[i] = source[i];
-  return out;
-}
 
 
